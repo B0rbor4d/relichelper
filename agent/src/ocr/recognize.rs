@@ -45,6 +45,112 @@ pub fn recognize_grid_file(path: &Path) -> io::Result<Vec<String>> {
     recognize_boxes(&img, &cells, "grid")
 }
 
+/// Fraction of the image height that the white "xNN" count badge sits above a
+/// grid cell's name, measured from real refinement captures. Tunable per setup
+/// via `RELICHELPER_OCR_COUNT_OFFSET` (the badge position relative to the name
+/// can shift with UI scale / theme).
+const COUNT_BADGE_ABOVE_DEFAULT: f32 = 0.150;
+const COUNT_BADGE_H: f32 = 0.060; // generous, to tolerate badge-position variance
+
+fn count_badge_above() -> f32 {
+    std::env::var("RELICHELPER_OCR_COUNT_OFFSET")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(COUNT_BADGE_ABOVE_DEFAULT)
+}
+
+/// OCRs a grid screenshot returning, per detected cell, the raw name text and
+/// the parsed count from the white "xNN" badge above it (when readable).
+pub fn recognize_grid_with_counts(path: &Path) -> io::Result<Vec<(String, Option<u32>)>> {
+    let img = image::open(path).map_err(to_io)?;
+    let ih = img.dimensions().1;
+    let cells = detect_text_cells(&img);
+
+    let mut out = Vec::with_capacity(cells.len());
+    for (i, b) in cells.iter().enumerate() {
+        // Name (theme-coloured).
+        let name_pre = preprocess(&img.crop_imm(b.x, b.y, b.w, b.h));
+        let name_tmp = std::env::temp_dir().join(format!("relich_ocr_gridn_{i}.png"));
+        name_pre.save(&name_tmp).map_err(to_io)?;
+        let name = ocr_image(&name_tmp)?;
+
+        // Count badge (white), centered above the name (the badge sits at the
+        // icon's top, roughly over the name's centre).
+        let cy = b.y + b.h / 2;
+        let cx = b.x + b.w / 2;
+        let count_h = (COUNT_BADGE_H * ih as f32) as u32;
+        let count_w = (b.w as f32 * 1.3) as u32;
+        let count = Rect {
+            x: cx.saturating_sub(count_w / 2),
+            y: cy
+                .saturating_sub((count_badge_above() * ih as f32) as u32)
+                .saturating_sub(count_h / 2),
+            w: count_w,
+            h: count_h,
+        }
+        .clamped(img.dimensions().0, ih);
+        let count_pre = preprocess_bright(&img.crop_imm(count.x, count.y, count.w, count.h));
+        let count_tmp = std::env::temp_dir().join(format!("relich_ocr_gridc_{i}.png"));
+        count_pre.save(&count_tmp).map_err(to_io)?;
+        let count = parse_count(&ocr_digits(&count_tmp)?);
+
+        out.push((name, count));
+    }
+    Ok(out)
+}
+
+/// Binarises bright (white) text such as the count badge: light pixels become
+/// black on white. Independent of the theme colour.
+fn preprocess_bright(img: &DynamicImage) -> DynamicImage {
+    let luma = img.to_luma8();
+    let bin: ImageBuffer<Luma<u8>, Vec<u8>> =
+        ImageBuffer::from_fn(luma.width(), luma.height(), |x, y| {
+            if luma.get_pixel(x, y)[0] > 140 {
+                Luma([0])
+            } else {
+                Luma([255])
+            }
+        });
+    let up = imageops::resize(
+        &bin,
+        bin.width() * 2,
+        bin.height() * 2,
+        imageops::FilterType::Lanczos3,
+    );
+    DynamicImage::ImageLuma8(up)
+}
+
+/// Runs Tesseract restricted to the count alphabet ("x" + digits), single line.
+fn ocr_digits(path: &Path) -> io::Result<String> {
+    let output = Command::new("tesseract")
+        .arg(path)
+        .arg("stdout")
+        .args(["--psm", "7"])
+        .args(["-c", "tessedit_char_whitelist=xX0123456789"])
+        .output()?;
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Parses a count badge string like "x35" / "X 35" into 35.
+fn parse_count(raw: &str) -> Option<u32> {
+    let digits: String = raw.chars().filter(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_count;
+
+    #[test]
+    fn parses_count_badges() {
+        assert_eq!(parse_count("x35"), Some(35));
+        assert_eq!(parse_count("X 14\n"), Some(14));
+        assert_eq!(parse_count("x1"), Some(1));
+        assert_eq!(parse_count(""), None);
+        assert_eq!(parse_count("xx"), None);
+    }
+}
+
 /// Region of the screen that holds the relic/inventory grid, as fractions:
 /// left of the right-hand detail panel, below the header, above the action bar.
 const GRID_ROI: (f32, f32, f32, f32) = (0.02, 0.27, 0.72, 0.96);

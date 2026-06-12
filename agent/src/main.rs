@@ -627,36 +627,63 @@ fn cmd_own_scan(
         },
     };
 
-    let raws = match relichelper_agent::ocr::recognize::recognize_grid_file(&file) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("ocr failed: {e}");
-            return ExitCode::FAILURE;
-        }
+    // Relics carry a white "xNN" count badge we can read; for parts we only
+    // record presence (their counts are usually 1 and sit differently).
+    use relichelper_agent::ocr::recognize::{recognize_grid_file, recognize_grid_with_counts};
+    let results: Vec<(String, Option<u32>)> = match kind {
+        ScanKind::Relics => match recognize_grid_with_counts(&file) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("ocr failed: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
+        ScanKind::Items => match recognize_grid_file(&file) {
+            Ok(r) => r.into_iter().map(|n| (n, None)).collect(),
+            Err(e) => {
+                eprintln!("ocr failed: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
     };
 
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    let mut newly = 0u32;
-    for raw in &raws {
-        if let Some(m) = matcher.best(raw, threshold) {
-            let name = if strip_relic {
-                m.name.strip_suffix(" Relic").unwrap_or(&m.name).to_string()
-            } else {
-                m.name
-            };
-            if seen.insert(name.clone()) {
-                match inventory::store::mark_owned(inv, &name, inventory::Source::Ocr) {
-                    Ok(true) => newly += 1,
-                    Ok(false) => {}
-                    Err(e) => eprintln!("record failed for {name:?}: {e}"),
-                }
+    let (mut newly, mut with_count) = (0u32, 0u32);
+    for (raw, count) in &results {
+        let Some(m) = matcher.best(raw, threshold) else {
+            continue;
+        };
+        let name = if strip_relic {
+            m.name.strip_suffix(" Relic").unwrap_or(&m.name).to_string()
+        } else {
+            m.name
+        };
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let outcome = match count {
+            // A read count is an authoritative fresh snapshot: set it exactly.
+            Some(c) => {
+                with_count += 1;
+                inventory::store::set_count(inv, &name, *c as i64, inventory::Source::Ocr)
+                    .map(|_| true)
             }
+            None => inventory::store::mark_owned(inv, &name, inventory::Source::Ocr),
+        };
+        match outcome {
+            Ok(true) => newly += 1,
+            Ok(false) => {}
+            Err(e) => eprintln!("record failed for {name:?}: {e}"),
+        }
+        match count {
+            Some(c) => println!("{name}\tx{c}"),
+            None => println!("{name}"),
         }
     }
-    for name in &seen {
-        println!("{name}");
-    }
-    eprintln!("scanned {label}: {} recognised, {newly} newly recorded as owned", seen.len());
+    eprintln!(
+        "scanned {label}: {} recognised ({with_count} with counts), {newly} newly recorded",
+        seen.len()
+    );
     ExitCode::SUCCESS
 }
 
