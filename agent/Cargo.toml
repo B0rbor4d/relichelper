@@ -22,5 +22,11 @@ dirs = "5"
 thiserror = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 strsim = "0.11"
+image = { version = "0.25", optional = true }
+
+[features]
+# OCR of the reward/inventory screens. Crops with the `image` crate and shells
+# out to the `tesseract` binary (no native linking). Enable with --features ocr.
+ocr = ["dep:image"]
 
 [dev-dependencies]

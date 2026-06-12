@@ -29,3 +29,6 @@ build/
 # Claude session state (framework memory persistence)
 .claude/.session/
 .claude/state/
+
+# Local demo captures (large; used for OCR tuning, not versioned)
+/screenshots/

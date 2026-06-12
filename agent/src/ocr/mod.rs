@@ -7,5 +7,10 @@
 //! real machine with screenshots).
 
 pub mod matcher;
+pub mod regions;
+
+#[cfg(feature = "ocr")]
+pub mod recognize;
 
 pub use matcher::{Match, Matcher};
+pub use regions::{reward_name_boxes, Rect};

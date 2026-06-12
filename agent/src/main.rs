@@ -18,6 +18,8 @@
 //!   replay [LOG] [REFDB]   Emit enriched overlay events for an existing log.
 //!   daemon [LOG] [REFDB]   Same, but follow the log live (the overlay feed).
 //!   match TEXT [REFDB]     Fuzzy-match OCR-style text to a known item name.
+//!   recognize IMG [REFDB]  OCR a reward-screen screenshot to item names
+//!                          (requires the `ocr` feature + the tesseract binary).
 //!
 //! Ownership is stored in data/inventory.sqlite (override via
 //! RELICHELPER_INVENTORY_DB). With no arguments it locates the log and watches.
@@ -74,6 +76,7 @@ fn main() -> ExitCode {
         "replay" => cmd_feed(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from), false),
         "daemon" => cmd_feed(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from), true),
         "match" => cmd_match(args.get(1).cloned(), args.get(2).map(PathBuf::from)),
+        "recognize" => cmd_recognize(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from)),
         other => {
             eprintln!("unknown command: {other}");
             eprintln!(
@@ -418,6 +421,49 @@ fn cmd_feed(log: Option<PathBuf>, refdb: Option<PathBuf>, live: bool) -> ExitCod
         }
     }
     ExitCode::SUCCESS
+}
+
+#[cfg(feature = "ocr")]
+fn cmd_recognize(file: Option<PathBuf>, refdb: Option<PathBuf>) -> ExitCode {
+    let Some(file) = file else {
+        eprintln!("usage: relichelper-agent recognize IMAGE [REFDB]");
+        return ExitCode::FAILURE;
+    };
+    let refdb = refdb.unwrap_or_else(|| PathBuf::from("data/refdata.sqlite"));
+    let conn = match refdata::store::open(&refdb) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open reference db {}: {e}", refdb.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let matcher = match refdata::store::item_names(&conn) {
+        Ok(n) => Matcher::new(n),
+        Err(e) => {
+            eprintln!("query failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let raws = match relichelper_agent::ocr::recognize::recognize_reward_file(&file) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ocr failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    for (i, raw) in raws.iter().enumerate() {
+        match matcher.best(raw, 0.55) {
+            Some(m) => println!("tile{}: {:?}  ->  {} ({:.3})", i + 1, raw, m.name, m.score),
+            None => println!("tile{}: {:?}  ->  (no match)", i + 1, raw),
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+#[cfg(not(feature = "ocr"))]
+fn cmd_recognize(_file: Option<PathBuf>, _refdb: Option<PathBuf>) -> ExitCode {
+    eprintln!("this build has no OCR support; rebuild with: cargo build --features ocr");
+    ExitCode::FAILURE
 }
 
 fn cmd_match(text: Option<String>, refdb: Option<PathBuf>) -> ExitCode {

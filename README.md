@@ -32,7 +32,7 @@ A cross-platform **Warframe relic companion** for **Linux and Windows** — a fo
 | 2 | Reference-data sync (drop tables → SQLite, path↔name) | ✅ done, verified end-to-end |
 | 3 | Data-driven relic model (drop table + vaulted/owned) | ✅ done, verified end-to-end |
 | 4 | Owned-item tracking (manual + log-derived) | ✅ done, verified end-to-end (OCR sync in phase 5) |
-| 5 | OCR layer (reward screen + inventory sync) | 🔄 fuzzy matcher done & verified; capture/recognize feature-gated (needs local Tesseract) |
+| 5 | OCR layer (reward screen + inventory sync) | 🔄 reward-screen OCR done & verified 8/8 on real captures (`--features ocr`); live capture (xcap) + inventory scroll wired with the overlay |
 | 6 | Tauri overlay | ⬜ planned |
 | 7 | Web app + hosted live service (+ matchmaking) | ⬜ planned |
 
@@ -80,7 +80,10 @@ cargo run   --manifest-path agent/Cargo.toml -- own list|add|remove|from-log  # 
 cargo run   --manifest-path agent/Cargo.toml -- replay [LOG] [DB]  # enriched overlay feed (one-shot)
 cargo run   --manifest-path agent/Cargo.toml -- daemon [LOG] [DB]  # enriched overlay feed (live)
 cargo run   --manifest-path agent/Cargo.toml -- match "OCR text" [DB]  # snap OCR text to a known item name
+cargo run --features ocr --manifest-path agent/Cargo.toml -- recognize IMG.png [DB]  # OCR a reward-screen capture
 ```
+
+OCR (`--features ocr`) needs the `tesseract` binary installed; it crops the four reward-name boxes, isolates the red name text, and snaps each to a canonical item name.
 
 The `replay`/`daemon` feed is the data stream the overlay (phase 6) and web app (phase 7) consume: per reward roll it emits a self-contained event with vault status, ownership, and relic sources already resolved — reconstructed entirely from `EE.log` + the local caches, no OCR.
 
@@ -131,7 +134,7 @@ Ein plattformübergreifender **Warframe-Relikt-Begleiter** für **Linux und Wind
 | 2 | Referenzdaten-Sync (Drop-Tabellen → SQLite, Pfad↔Name) | ✅ fertig, end-to-end verifiziert |
 | 3 | Datengetriebenes Relikt-Modell (Drop-Tabelle + Vaulted/Owned) | ✅ fertig, end-to-end verifiziert |
 | 4 | Besitz-Tracking (manuell + log-abgeleitet) | ✅ fertig, end-to-end verifiziert (OCR-Sync in Phase 5) |
-| 5 | OCR-Schicht (Belohnungsscreen + Inventar-Sync) | 🔄 Fuzzy-Matcher fertig & verifiziert; Capture/Recognize feature-gated (braucht lokales Tesseract) |
+| 5 | OCR-Schicht (Belohnungsscreen + Inventar-Sync) | 🔄 Reward-Screen-OCR fertig & 8/8 an echten Captures verifiziert (`--features ocr`); Live-Capture (xcap) + Inventar-Scroll mit dem Overlay |
 | 6 | Tauri-Overlay | ⬜ geplant |
 | 7 | Web-App + gehosteter Live-Service (+ Matchmaking) | ⬜ geplant |
 
@@ -179,7 +182,10 @@ cargo run   --manifest-path agent/Cargo.toml -- own list|add|remove|from-log  # 
 cargo run   --manifest-path agent/Cargo.toml -- replay [LOG] [DB]  # angereicherter Overlay-Feed (einmalig)
 cargo run   --manifest-path agent/Cargo.toml -- daemon [LOG] [DB]  # angereicherter Overlay-Feed (live)
 cargo run   --manifest-path agent/Cargo.toml -- match "OCR-Text" [DB]  # OCR-Text auf bekannten Item-Namen abbilden
+cargo run --features ocr --manifest-path agent/Cargo.toml -- recognize IMG.png [DB]  # Reward-Screen-Capture per OCR
 ```
+
+OCR (`--features ocr`) braucht das `tesseract`-Binary; es croppt die vier Reward-Namensboxen, isoliert die rote Schrift und bildet jeden Treffer auf einen kanonischen Item-Namen ab.
 
 Der `replay`/`daemon`-Feed ist der Datenstrom, den Overlay (Phase 6) und Web-App (Phase 7) konsumieren: pro Reward-Roll ein in sich geschlossenes Event mit bereits aufgelöstem Vault-Status, Besitz und Relikt-Quellen — vollständig aus `EE.log` + lokalen Caches rekonstruiert, ohne OCR.
 
