@@ -30,11 +30,17 @@ CREATE INDEX IF NOT EXISTS idx_drops_relic ON drops(relic);
 CREATE INDEX IF NOT EXISTS idx_drops_item  ON drops(item);
 CREATE INDEX IF NOT EXISTS idx_relics_vaulted ON relics(vaulted);
 CREATE TABLE IF NOT EXISTS items (
-    name TEXT PRIMARY KEY,
-    norm TEXT NOT NULL
+    name    TEXT PRIMARY KEY,
+    norm    TEXT NOT NULL,
+    vaulted INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_items_norm ON items(norm);
 ";
+
+/// Creates the schema (tables + indexes) if it does not yet exist.
+pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(SCHEMA)
+}
 
 /// Opens (creating if needed) the reference-data database at `path` and ensures
 /// the schema exists.
@@ -43,7 +49,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
         let _ = std::fs::create_dir_all(dir);
     }
     let conn = Connection::open(path)?;
-    conn.execute_batch(SCHEMA)?;
+    init_schema(&conn)?;
     Ok(conn)
 }
 
@@ -54,8 +60,10 @@ pub fn persist(conn: &mut Connection, relics: &[Relic]) -> rusqlite::Result<()> 
     tx.execute("DELETE FROM relics", [])?;
     tx.execute("DELETE FROM items", [])?;
 
-    // Distinct reward items, for the path -> display-name bridge.
+    // Distinct reward items (for the path -> display-name bridge), and the
+    // subset obtainable from at least one non-vaulted relic.
     let mut items: BTreeSet<&str> = BTreeSet::new();
+    let mut obtainable: BTreeSet<&str> = BTreeSet::new();
 
     for relic in relics {
         tx.execute(
@@ -70,14 +78,19 @@ pub fn persist(conn: &mut Connection, relics: &[Relic]) -> rusqlite::Result<()> 
                     params![relic.name, tier.as_str(), d.item, d.rarity, d.chance],
                 )?;
                 items.insert(d.item.as_str());
+                if !relic.vaulted {
+                    obtainable.insert(d.item.as_str());
+                }
             }
         }
     }
 
     for item in items {
+        // An item is "vaulted" when no current (non-vaulted) relic drops it.
+        let vaulted = !obtainable.contains(item);
         tx.execute(
-            "INSERT OR REPLACE INTO items(name, norm) VALUES (?1, ?2)",
-            params![item, naming::normalize(item)],
+            "INSERT OR REPLACE INTO items(name, norm, vaulted) VALUES (?1, ?2, ?3)",
+            params![item, naming::normalize(item), vaulted as i32],
         )?;
     }
 

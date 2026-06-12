@@ -7,7 +7,10 @@
 //!   watch [FILE]           Follow the log live, printing events as JSON lines.
 //!   sync HTML [DB]         Parse the official drop-table HTML into the SQLite
 //!                          reference cache (DB defaults to data/refdata.sqlite).
-//!   resolve PATH [DB]      Resolve an EE.log item path to its display name.
+//!   resolve PATH [DB]      Resolve an EE.log reward path to its item, vault
+//!                          status and relic sources (JSON).
+//!   relic NAME [TIER] [DB] Print a relic's drop table at TIER (default radiant)
+//!                          with per-drop vault/owned annotation (JSON).
 //!
 //! With no arguments it locates the log and starts watching.
 
@@ -16,6 +19,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use relichelper_agent::eelog::{self, watcher::LogWatcher};
+use relichelper_agent::refdata::RefinementTier;
 use relichelper_agent::{paths, refdata};
 
 fn main() -> ExitCode {
@@ -28,9 +32,14 @@ fn main() -> ExitCode {
         "watch" => cmd_watch(args.get(1).map(PathBuf::from)),
         "sync" => cmd_sync(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from)),
         "resolve" => cmd_resolve(args.get(1).cloned(), args.get(2).map(PathBuf::from)),
+        "relic" => cmd_relic(
+            args.get(1).cloned(),
+            args.get(2).cloned(),
+            args.get(3).map(PathBuf::from),
+        ),
         other => {
             eprintln!("unknown command: {other}");
-            eprintln!("usage: relichelper-agent [locate|parse|watch|sync|resolve] [ARGS]");
+            eprintln!("usage: relichelper-agent [locate|parse|watch|sync|resolve|relic] [ARGS]");
             ExitCode::FAILURE
         }
     }
@@ -140,13 +149,52 @@ fn cmd_resolve(path: Option<String>, db: Option<PathBuf>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match refdata::store::resolve_item_path(&conn, &item_path) {
-        Ok(Some(name)) => {
-            println!("{name}");
+    match refdata::resolve_reward(&conn, &item_path) {
+        Ok(Some(view)) => {
+            println!("{}", serde_json::to_string_pretty(&view).unwrap());
             ExitCode::SUCCESS
         }
         Ok(None) => {
             eprintln!("no match for {item_path} (not a known relic reward, or run `sync` first)");
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("query failed: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn cmd_relic(name: Option<String>, tier: Option<String>, db: Option<PathBuf>) -> ExitCode {
+    let Some(relic) = name else {
+        eprintln!("usage: relichelper-agent relic NAME [TIER] [DB]");
+        return ExitCode::FAILURE;
+    };
+    let tier = match tier.as_deref() {
+        None => RefinementTier::Radiant,
+        Some(w) => match RefinementTier::from_dialog_word(w) {
+            Some(t) => t,
+            None => {
+                eprintln!("unknown tier '{w}' (intact|exceptional|flawless|radiant)");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
+    let db_path = db.unwrap_or_else(|| PathBuf::from("data/refdata.sqlite"));
+    let conn = match refdata::store::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open db {}: {e}", db_path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    match refdata::relic_view(&conn, &relic, tier) {
+        Ok(Some(view)) => {
+            println!("{}", serde_json::to_string_pretty(&view).unwrap());
+            ExitCode::SUCCESS
+        }
+        Ok(None) => {
+            eprintln!("no data for relic '{relic}' at {} (or run `sync` first)", tier.as_str());
             ExitCode::FAILURE
         }
         Err(e) => {

@@ -30,8 +30,8 @@ A cross-platform **Warframe relic companion** for **Linux and Windows** — a fo
 | 0 | Monorepo scaffold + dev tooling | ✅ done |
 | 1 | EE.log parser + path resolution (Rust) | ✅ done, verified against a real log |
 | 2 | Reference-data sync (drop tables → SQLite, path↔name) | ✅ done, verified end-to-end |
-| 3 | Data-driven relic model (drop table + vaulted/owned) | ⏳ next |
-| 4 | Owned-item tracking (OCR inventory sync + log + manual) | ⬜ planned |
+| 3 | Data-driven relic model (drop table + vaulted/owned) | ✅ done, verified end-to-end |
+| 4 | Owned-item tracking (OCR inventory sync + log + manual) | ⏳ next |
 | 5 | OCR layer (reward screen + inventory) | ⬜ planned |
 | 6 | Tauri overlay | ⬜ planned |
 | 7 | Web app + hosted live service (+ matchmaking) | ⬜ planned |
@@ -74,7 +74,8 @@ cargo run   --manifest-path agent/Cargo.toml -- locate   # show probed EE.log pa
 cargo run   --manifest-path agent/Cargo.toml -- watch     # follow live, one JSON event per line
 cargo run   --manifest-path agent/Cargo.toml -- parse [FILE]   # batch-parse a log
 cargo run   --manifest-path agent/Cargo.toml -- sync HTML [DB]  # drop-table HTML -> SQLite cache
-cargo run   --manifest-path agent/Cargo.toml -- resolve PATH    # EE.log item path -> display name
+cargo run   --manifest-path agent/Cargo.toml -- resolve PATH    # reward path -> item + vault + sources
+cargo run   --manifest-path agent/Cargo.toml -- relic NAME [TIER]  # relic drop table (vault/owned annotated)
 ```
 
 Linux system dependencies (for later phases — overlay & OCR):
@@ -122,8 +123,8 @@ Ein plattformübergreifender **Warframe-Relikt-Begleiter** für **Linux und Wind
 | 0 | Monorepo-Scaffold + Dev-Tooling | ✅ fertig |
 | 1 | EE.log-Parser + Pfad-Auflösung (Rust) | ✅ fertig, gegen echte Log verifiziert |
 | 2 | Referenzdaten-Sync (Drop-Tabellen → SQLite, Pfad↔Name) | ✅ fertig, end-to-end verifiziert |
-| 3 | Datengetriebenes Relikt-Modell (Drop-Tabelle + Vaulted/Owned) | ⏳ als Nächstes |
-| 4 | Besitz-Tracking (OCR-Inventar-Sync + Log + manuell) | ⬜ geplant |
+| 3 | Datengetriebenes Relikt-Modell (Drop-Tabelle + Vaulted/Owned) | ✅ fertig, end-to-end verifiziert |
+| 4 | Besitz-Tracking (OCR-Inventar-Sync + Log + manuell) | ⏳ als Nächstes |
 | 5 | OCR-Schicht (Belohnungsscreen + Inventar) | ⬜ geplant |
 | 6 | Tauri-Overlay | ⬜ geplant |
 | 7 | Web-App + gehosteter Live-Service (+ Matchmaking) | ⬜ geplant |
@@ -166,7 +167,8 @@ cargo run   --manifest-path agent/Cargo.toml -- locate   # geprüfte EE.log-Pfad
 cargo run   --manifest-path agent/Cargo.toml -- watch     # live folgen, ein JSON-Event pro Zeile
 cargo run   --manifest-path agent/Cargo.toml -- parse [DATEI]   # Log batch-parsen
 cargo run   --manifest-path agent/Cargo.toml -- sync HTML [DB]  # Drop-Table-HTML -> SQLite-Cache
-cargo run   --manifest-path agent/Cargo.toml -- resolve PATH    # EE.log-Item-Pfad -> Anzeigename
+cargo run   --manifest-path agent/Cargo.toml -- resolve PATH    # Reward-Pfad -> Item + Vault + Quellen
+cargo run   --manifest-path agent/Cargo.toml -- relic NAME [TIER]  # Relikt-Drop-Tabelle (Vault/Owned annotiert)
 ```
 
 Linux-Systemabhängigkeiten (für spätere Phasen — Overlay & OCR):
