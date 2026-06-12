@@ -49,7 +49,7 @@ pub fn recognize_grid_file(path: &Path) -> io::Result<Vec<String>> {
 /// grid cell's name, measured from real refinement captures. Tunable per setup
 /// via `RELICHELPER_OCR_COUNT_OFFSET` (the badge position relative to the name
 /// can shift with UI scale / theme).
-const COUNT_BADGE_ABOVE_DEFAULT: f32 = 0.150;
+const COUNT_BADGE_ABOVE_DEFAULT: f32 = 0.085;
 const COUNT_BADGE_H: f32 = 0.060; // generous, to tolerate badge-position variance
 
 fn count_badge_above() -> f32 {
@@ -74,21 +74,22 @@ pub fn recognize_grid_with_counts(path: &Path) -> io::Result<Vec<(String, Option
         name_pre.save(&name_tmp).map_err(to_io)?;
         let name = ocr_image(&name_tmp)?;
 
-        // Count badge (white), centered above the name (the badge sits at the
-        // icon's top, roughly over the name's centre).
+        // Count badge (white "xNN") sits at the icon's TOP-LEFT, above and left
+        // of the centred name.
+        let (iw, _) = img.dimensions();
         let cy = b.y + b.h / 2;
         let cx = b.x + b.w / 2;
         let count_h = (COUNT_BADGE_H * ih as f32) as u32;
-        let count_w = (b.w as f32 * 1.3) as u32;
+        let count_w = (0.075 * iw as f32) as u32;
         let count = Rect {
-            x: cx.saturating_sub(count_w / 2),
+            x: cx.saturating_sub((0.055 * iw as f32) as u32),
             y: cy
                 .saturating_sub((count_badge_above() * ih as f32) as u32)
                 .saturating_sub(count_h / 2),
             w: count_w,
             h: count_h,
         }
-        .clamped(img.dimensions().0, ih);
+        .clamped(iw, ih);
         let count_pre = preprocess_bright(&img.crop_imm(count.x, count.y, count.w, count.h));
         let count_tmp = std::env::temp_dir().join(format!("relich_ocr_gridc_{i}.png"));
         count_pre.save(&count_tmp).map_err(to_io)?;

@@ -667,6 +667,13 @@ fn cmd_own_scan(
         },
     };
 
+    if matches!(kind, ScanKind::Relics) {
+        eprintln!(
+            "note: set the refinement screen's OWNED filter first — unowned relics look the \
+             same to OCR (only the icon is desaturated), so an ALL view would over-record."
+        );
+    }
+
     // Relics carry a white "xNN" count badge we can read; for parts we only
     // record presence (their counts are usually 1 and sit differently).
     use relichelper_agent::ocr::recognize::{recognize_grid_file, recognize_grid_with_counts};
