@@ -59,11 +59,32 @@ fn count_badge_above() -> f32 {
         .unwrap_or(COUNT_BADGE_ABOVE_DEFAULT)
 }
 
-/// OCRs a grid screenshot returning, per detected cell, the raw name text and
-/// the parsed count from the white "xNN" badge above it (when readable).
-pub fn recognize_grid_with_counts(path: &Path) -> io::Result<Vec<(String, Option<u32>)>> {
+/// A recognised refinement-grid cell.
+#[derive(Debug, Clone)]
+pub struct GridCell {
+    pub name: String,
+    /// Quantity from the white "xNN" badge, when readable.
+    pub count: Option<u32>,
+    /// Whether the relic is owned. Unowned relics carry a red "eye" marker above
+    /// the icon (owned ones never do), which we detect reliably via the theme
+    /// colour — far more robust than reading the small white count badge.
+    pub owned: bool,
+}
+
+/// Eye-marker region above the icon, and the theme-red fraction above which we
+/// consider the marker present (owned cells measure ~0, unowned ~0.02+).
+const EYE_REGION_ABOVE: f32 = 0.10;
+const EYE_REGION_W: f32 = 0.06;
+const EYE_REGION_H: f32 = 0.05;
+const EYE_RED_FRACTION: f32 = 0.008;
+
+/// OCRs a grid screenshot returning, per detected cell, the name, the count
+/// badge (when readable), and whether the relic is owned (no red eye marker).
+pub fn recognize_grid_with_counts(path: &Path) -> io::Result<Vec<GridCell>> {
     let img = image::open(path).map_err(to_io)?;
-    let ih = img.dimensions().1;
+    let (iw, ih) = img.dimensions();
+    let rgb = img.to_rgb8();
+    let mask = TextMask::from_rgb(theme_text_color());
     let cells = detect_text_cells(&img);
 
     let mut out = Vec::with_capacity(cells.len());
@@ -76,7 +97,6 @@ pub fn recognize_grid_with_counts(path: &Path) -> io::Result<Vec<(String, Option
 
         // Count badge (white "xNN") sits at the icon's TOP-LEFT, above and left
         // of the centred name.
-        let (iw, _) = img.dimensions();
         let cy = b.y + b.h / 2;
         let cx = b.x + b.w / 2;
         let count_h = (COUNT_BADGE_H * ih as f32) as u32;
@@ -95,9 +115,40 @@ pub fn recognize_grid_with_counts(path: &Path) -> io::Result<Vec<(String, Option
         count_pre.save(&count_tmp).map_err(to_io)?;
         let count = parse_count(&ocr_digits(&count_tmp)?);
 
-        out.push((name, count));
+        // Ownership: red "eye" marker above the icon (owned cells have none).
+        let eye_w = (EYE_REGION_W * iw as f32) as u32;
+        let eye_h = (EYE_REGION_H * ih as f32) as u32;
+        let eye = Rect {
+            x: cx.saturating_sub(eye_w / 2),
+            y: (b.y + b.h / 2)
+                .saturating_sub((EYE_REGION_ABOVE * ih as f32) as u32)
+                .saturating_sub(eye_h / 2),
+            w: eye_w,
+            h: eye_h,
+        }
+        .clamped(iw, ih);
+        let owned = red_fraction(&rgb, &mask, &eye) <= EYE_RED_FRACTION;
+
+        out.push(GridCell { name, count, owned });
     }
     Ok(out)
+}
+
+/// Fraction of pixels in `rect` that match the theme text colour.
+fn red_fraction(rgb: &image::RgbImage, mask: &TextMask, rect: &Rect) -> f32 {
+    let total = rect.w * rect.h;
+    if total == 0 {
+        return 0.0;
+    }
+    let mut hits = 0u32;
+    for y in rect.y..rect.y + rect.h {
+        for x in rect.x..rect.x + rect.w {
+            if mask.is_text(&rgb.get_pixel(x, y).0) {
+                hits += 1;
+            }
+        }
+    }
+    hits as f32 / total as f32
 }
 
 /// Binarises bright (white) text such as the count badge: light pixels become

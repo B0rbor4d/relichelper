@@ -669,25 +669,25 @@ fn cmd_own_scan(
 
     if matches!(kind, ScanKind::Relics) {
         eprintln!(
-            "note: OWNED sorts owned relics first but unowned (desaturated, eye marker) still \
-             follow. OCR can't tell them apart reliably, so only scan pages up to where the \
-             greyed-out relics begin."
+            "note: OWNED sorts owned relics first; unowned ones (red eye marker) still follow. \
+             Scan pages up to where the greyed-out relics begin. Experimental auto-skip of \
+             unowned via the eye marker: set RELICHELPER_OCR_SKIP_UNOWNED=1 (needs calibration)."
         );
     }
 
-    // Relics carry a white "xNN" count badge we can read; for parts we only
-    // record presence (their counts are usually 1 and sit differently).
+    // (raw_name, count, owned). Relics carry a count badge and a red "eye"
+    // marker on unowned cells; parts only record presence.
     use relichelper_agent::ocr::recognize::{recognize_grid_file, recognize_grid_with_counts};
-    let results: Vec<(String, Option<u32>)> = match kind {
+    let results: Vec<(String, Option<u32>, bool)> = match kind {
         ScanKind::Relics => match recognize_grid_with_counts(&file) {
-            Ok(r) => r,
+            Ok(r) => r.into_iter().map(|c| (c.name, c.count, c.owned)).collect(),
             Err(e) => {
                 eprintln!("ocr failed: {e}");
                 return ExitCode::FAILURE;
             }
         },
         ScanKind::Items => match recognize_grid_file(&file) {
-            Ok(r) => r.into_iter().map(|n| (n, None)).collect(),
+            Ok(r) => r.into_iter().map(|n| (n, None, true)).collect(),
             Err(e) => {
                 eprintln!("ocr failed: {e}");
                 return ExitCode::FAILURE;
@@ -696,11 +696,18 @@ fn cmd_own_scan(
     };
 
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    let (mut newly, mut with_count) = (0u32, 0u32);
-    for (raw, count) in &results {
+    let (mut newly, mut with_count, mut skipped_unowned) = (0u32, 0u32, 0u32);
+    for (raw, count, owned) in &results {
         let Some(m) = matcher.best(raw, threshold) else {
             continue;
         };
+        // Skip relics flagged unowned by the red eye marker. Opt-in: the eye
+        // signal is clean, but placing its check box relative to detected cells
+        // still needs per-setup calibration, so it's off unless requested.
+        if !owned && std::env::var("RELICHELPER_OCR_SKIP_UNOWNED").is_ok() {
+            skipped_unowned += 1;
+            continue;
+        }
         let name = if strip_relic {
             m.name.strip_suffix(" Relic").unwrap_or(&m.name).to_string()
         } else {
@@ -729,7 +736,8 @@ fn cmd_own_scan(
         }
     }
     eprintln!(
-        "scanned {label}: {} recognised ({with_count} with counts), {newly} newly recorded",
+        "scanned {label}: {} owned recorded ({with_count} with counts, {newly} new), \
+         {skipped_unowned} unowned skipped",
         seen.len()
     );
     ExitCode::SUCCESS
