@@ -311,8 +311,22 @@ fn cmd_own(args: &[String]) -> ExitCode {
             args.get(1).map(PathBuf::from),
             args.get(2).map(PathBuf::from),
         ),
+        "scan-relics" => cmd_own_scan(
+            &conn,
+            args.get(1).map(PathBuf::from),
+            args.get(2).map(PathBuf::from),
+            ScanKind::Relics,
+        ),
+        "scan-items" => cmd_own_scan(
+            &conn,
+            args.get(1).map(PathBuf::from),
+            args.get(2).map(PathBuf::from),
+            ScanKind::Items,
+        ),
         other => {
-            eprintln!("unknown own subcommand: {other} (list|add|remove|from-log)");
+            eprintln!(
+                "unknown own subcommand: {other} (list|add|remove|from-log|scan-relics|scan-items)"
+            );
             ExitCode::FAILURE
         }
     }
@@ -492,26 +506,35 @@ fn cmd_recognize_relics(file: Option<PathBuf>, refdb: Option<PathBuf>) -> ExitCo
             return ExitCode::FAILURE;
         }
     };
-    let raws = match relichelper_agent::ocr::recognize::recognize_relic_grid_file(&file) {
-        Ok(r) => r,
+    let found = match recognize_grid_relics(&file, &matcher) {
+        Ok(f) => f,
         Err(e) => {
             eprintln!("ocr failed: {e}");
             return ExitCode::FAILURE;
         }
     };
-    // Keep confident, de-duplicated matches.
-    let mut found: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for raw in &raws {
-        if let Some(m) = matcher.best(raw, 0.8) {
-            let name = m.name.strip_suffix(" Relic").unwrap_or(&m.name).to_string();
-            found.insert(name);
-        }
-    }
     for name in &found {
         println!("{name}");
     }
-    eprintln!("matched {} distinct relics from {} cells", found.len(), raws.len());
+    eprintln!("matched {} distinct relics", found.len());
     ExitCode::SUCCESS
+}
+
+/// Recognises a relic refinement grid and returns the distinct relic names
+/// (with the " Relic" suffix stripped) the matcher is confident about.
+#[cfg(feature = "ocr")]
+fn recognize_grid_relics(
+    file: &std::path::Path,
+    matcher: &Matcher,
+) -> std::io::Result<std::collections::BTreeSet<String>> {
+    let raws = relichelper_agent::ocr::recognize::recognize_grid_file(file)?;
+    let mut found = std::collections::BTreeSet::new();
+    for raw in &raws {
+        if let Some(m) = matcher.best(raw, 0.8) {
+            found.insert(m.name.strip_suffix(" Relic").unwrap_or(&m.name).to_string());
+        }
+    }
+    Ok(found)
 }
 
 #[cfg(not(feature = "ocr"))]
@@ -552,6 +575,100 @@ fn cmd_match(text: Option<String>, refdb: Option<PathBuf>) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+enum ScanKind {
+    Relics,
+    Items,
+}
+
+/// Recognises a relic/inventory grid screenshot and marks every confidently
+/// matched name as owned (presence only; existing counts are left untouched).
+#[cfg(feature = "ocr")]
+fn cmd_own_scan(
+    inv: &rusqlite::Connection,
+    file: Option<PathBuf>,
+    refdb: Option<PathBuf>,
+    kind: ScanKind,
+) -> ExitCode {
+    let Some(file) = file else {
+        eprintln!("usage: relichelper-agent own scan-relics|scan-items IMAGE [REFDB]");
+        return ExitCode::FAILURE;
+    };
+    let refdb = refdb.unwrap_or_else(|| PathBuf::from("data/refdata.sqlite"));
+    let refconn = match refdata::store::open(&refdb) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open reference db {}: {e}", refdb.display());
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // Build the corpus + matching rules for this screen.
+    let (matcher, strip_relic, threshold, label) = match kind {
+        ScanKind::Relics => match refdata::store::relic_names(&refconn) {
+            Ok(n) => (
+                Matcher::new(n.into_iter().map(|r| format!("{r} Relic"))),
+                true,
+                0.8,
+                "relics",
+            ),
+            Err(e) => {
+                eprintln!("query failed: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
+        ScanKind::Items => match refdata::store::item_names(&refconn) {
+            Ok(n) => (Matcher::new(n), false, 0.7, "items"),
+            Err(e) => {
+                eprintln!("query failed: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
+
+    let raws = match relichelper_agent::ocr::recognize::recognize_grid_file(&file) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ocr failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut newly = 0u32;
+    for raw in &raws {
+        if let Some(m) = matcher.best(raw, threshold) {
+            let name = if strip_relic {
+                m.name.strip_suffix(" Relic").unwrap_or(&m.name).to_string()
+            } else {
+                m.name
+            };
+            if seen.insert(name.clone()) {
+                match inventory::store::mark_owned(inv, &name, inventory::Source::Ocr) {
+                    Ok(true) => newly += 1,
+                    Ok(false) => {}
+                    Err(e) => eprintln!("record failed for {name:?}: {e}"),
+                }
+            }
+        }
+    }
+    for name in &seen {
+        println!("{name}");
+    }
+    eprintln!("scanned {label}: {} recognised, {newly} newly recorded as owned", seen.len());
+    ExitCode::SUCCESS
+}
+
+#[cfg(not(feature = "ocr"))]
+fn cmd_own_scan(
+    _inv: &rusqlite::Connection,
+    _file: Option<PathBuf>,
+    _refdb: Option<PathBuf>,
+    _kind: ScanKind,
+) -> ExitCode {
+    eprintln!("this build has no OCR support; rebuild with: cargo build --features ocr");
+    ExitCode::FAILURE
 }
 
 fn cmd_watch(file: Option<PathBuf>) -> ExitCode {

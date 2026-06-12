@@ -77,6 +77,8 @@ cargo run   --manifest-path agent/Cargo.toml -- sync HTML [DB]  # drop-table HTM
 cargo run   --manifest-path agent/Cargo.toml -- resolve PATH    # reward path -> item + vault + sources
 cargo run   --manifest-path agent/Cargo.toml -- relic NAME [TIER]  # relic drop table (vault/owned annotated)
 cargo run   --manifest-path agent/Cargo.toml -- own list|add|remove|from-log  # owned-item tracking
+cargo run --features ocr --manifest-path agent/Cargo.toml -- own scan-relics IMG  # record owned relics (refinement grid)
+cargo run --features ocr --manifest-path agent/Cargo.toml -- own scan-items  IMG  # record owned prime parts (components inventory)
 cargo run   --manifest-path agent/Cargo.toml -- replay [LOG] [DB]  # enriched overlay feed (one-shot)
 cargo run   --manifest-path agent/Cargo.toml -- daemon [LOG] [DB]  # enriched overlay feed (live)
 cargo run   --manifest-path agent/Cargo.toml -- match "OCR text" [DB]  # snap OCR text to a known item name
@@ -179,6 +181,8 @@ cargo run   --manifest-path agent/Cargo.toml -- sync HTML [DB]  # Drop-Table-HTM
 cargo run   --manifest-path agent/Cargo.toml -- resolve PATH    # Reward-Pfad -> Item + Vault + Quellen
 cargo run   --manifest-path agent/Cargo.toml -- relic NAME [TIER]  # Relikt-Drop-Tabelle (Vault/Owned annotiert)
 cargo run   --manifest-path agent/Cargo.toml -- own list|add|remove|from-log  # Besitz-Tracking
+cargo run --features ocr --manifest-path agent/Cargo.toml -- own scan-relics IMG  # besessene Relikte erfassen (Refinement-Grid)
+cargo run --features ocr --manifest-path agent/Cargo.toml -- own scan-items  IMG  # besessene Prime-Teile erfassen (Komponenten-Inventar)
 cargo run   --manifest-path agent/Cargo.toml -- replay [LOG] [DB]  # angereicherter Overlay-Feed (einmalig)
 cargo run   --manifest-path agent/Cargo.toml -- daemon [LOG] [DB]  # angereicherter Overlay-Feed (live)
 cargo run   --manifest-path agent/Cargo.toml -- match "OCR-Text" [DB]  # OCR-Text auf bekannten Item-Namen abbilden

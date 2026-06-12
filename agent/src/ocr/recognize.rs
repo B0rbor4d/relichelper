@@ -35,9 +35,11 @@ pub fn recognize_reward(img: &DynamicImage, w: u32, h: u32) -> io::Result<Vec<St
     recognize_boxes(img, &reward_name_boxes(w, h), "reward")
 }
 
-/// OCRs every relic name in a refinement-grid screenshot. The grid is found by
-/// content (not fixed positions), so it works at any scroll offset.
-pub fn recognize_relic_grid_file(path: &Path) -> io::Result<Vec<String>> {
+/// OCRs every name in a grid screenshot (relic refinement or inventory). The
+/// grid is found by content (not fixed positions), so it works at any scroll
+/// offset. Returns the raw recognised text per detected cell; the caller snaps
+/// each to a canonical relic/item name.
+pub fn recognize_grid_file(path: &Path) -> io::Result<Vec<String>> {
     let img = image::open(path).map_err(to_io)?;
     let cells = detect_text_cells(&img);
     recognize_boxes(&img, &cells, "grid")

@@ -99,6 +99,18 @@ pub fn record_reward(conn: &Connection, item: &str) -> rusqlite::Result<i64> {
     add(conn, item, 1, Source::Log)
 }
 
+/// Marks an item as owned (count 1) only if it is not tracked yet, leaving an
+/// existing count untouched. Used by OCR page-snapshots that detect *presence*
+/// but not (yet) the exact quantity, so re-scanning never clobbers real counts.
+pub fn mark_owned(conn: &Connection, item: &str, source: Source) -> rusqlite::Result<bool> {
+    let changed = conn.execute(
+        "INSERT INTO owned(item, count, source, updated_at) VALUES (?1, 1, ?2, ?3) \
+         ON CONFLICT(item) DO NOTHING",
+        params![item, source.as_str(), now()],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Removes an item from the inventory entirely.
 pub fn remove(conn: &Connection, item: &str) -> rusqlite::Result<bool> {
     Ok(conn.execute("DELETE FROM owned WHERE item = ?1", [item])? > 0)
@@ -180,6 +192,19 @@ mod tests {
         let conn = db();
         add(&conn, "Lex Prime Barrel", 1, Source::Manual).unwrap();
         assert_eq!(add(&conn, "Lex Prime Barrel", -5, Source::Manual).unwrap(), 0);
+    }
+
+    #[test]
+    fn mark_owned_sets_presence_without_clobbering_counts() {
+        let conn = db();
+        // first sighting -> count 1
+        assert!(mark_owned(&conn, "Lith A3", Source::Ocr).unwrap());
+        assert_eq!(count_of(&conn, "Lith A3").unwrap(), 1);
+        // a real count was recorded later
+        set_count(&conn, "Lith A3", 35, Source::Manual).unwrap();
+        // re-scanning must NOT reset it back to 1
+        assert!(!mark_owned(&conn, "Lith A3", Source::Ocr).unwrap());
+        assert_eq!(count_of(&conn, "Lith A3").unwrap(), 35);
     }
 
     #[test]
