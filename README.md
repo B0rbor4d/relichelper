@@ -77,7 +77,11 @@ cargo run   --manifest-path agent/Cargo.toml -- sync HTML [DB]  # drop-table HTM
 cargo run   --manifest-path agent/Cargo.toml -- resolve PATH    # reward path -> item + vault + sources
 cargo run   --manifest-path agent/Cargo.toml -- relic NAME [TIER]  # relic drop table (vault/owned annotated)
 cargo run   --manifest-path agent/Cargo.toml -- own list|add|remove|from-log  # owned-item tracking
+cargo run   --manifest-path agent/Cargo.toml -- replay [LOG] [DB]  # enriched overlay feed (one-shot)
+cargo run   --manifest-path agent/Cargo.toml -- daemon [LOG] [DB]  # enriched overlay feed (live)
 ```
+
+The `replay`/`daemon` feed is the data stream the overlay (phase 6) and web app (phase 7) consume: per reward roll it emits a self-contained event with vault status, ownership, and relic sources already resolved — reconstructed entirely from `EE.log` + the local caches, no OCR.
 
 Linux system dependencies (for later phases — overlay & OCR):
 
@@ -171,7 +175,11 @@ cargo run   --manifest-path agent/Cargo.toml -- sync HTML [DB]  # Drop-Table-HTM
 cargo run   --manifest-path agent/Cargo.toml -- resolve PATH    # Reward-Pfad -> Item + Vault + Quellen
 cargo run   --manifest-path agent/Cargo.toml -- relic NAME [TIER]  # Relikt-Drop-Tabelle (Vault/Owned annotiert)
 cargo run   --manifest-path agent/Cargo.toml -- own list|add|remove|from-log  # Besitz-Tracking
+cargo run   --manifest-path agent/Cargo.toml -- replay [LOG] [DB]  # angereicherter Overlay-Feed (einmalig)
+cargo run   --manifest-path agent/Cargo.toml -- daemon [LOG] [DB]  # angereicherter Overlay-Feed (live)
 ```
+
+Der `replay`/`daemon`-Feed ist der Datenstrom, den Overlay (Phase 6) und Web-App (Phase 7) konsumieren: pro Reward-Roll ein in sich geschlossenes Event mit bereits aufgelöstem Vault-Status, Besitz und Relikt-Quellen — vollständig aus `EE.log` + lokalen Caches rekonstruiert, ohne OCR.
 
 Linux-Systemabhängigkeiten (für spätere Phasen — Overlay & OCR):
 

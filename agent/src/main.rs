@@ -15,6 +15,8 @@
 //!   own add ITEM [COUNT]   Manually record owning COUNT (default 1) of ITEM.
 //!   own remove ITEM        Forget an owned item.
 //!   own from-log [LOG] [DB] Scan a log for own-reward rolls and record them.
+//!   replay [LOG] [REFDB]   Emit enriched overlay events for an existing log.
+//!   daemon [LOG] [REFDB]   Same, but follow the log live (the overlay feed).
 //!
 //! Ownership is stored in data/inventory.sqlite (override via
 //! RELICHELPER_INVENTORY_DB). With no arguments it locates the log and watches.
@@ -27,6 +29,7 @@ use std::process::ExitCode;
 use relichelper_agent::eelog::{self, watcher::LogWatcher, LogEvent};
 use relichelper_agent::inventory;
 use relichelper_agent::refdata::RefinementTier;
+use relichelper_agent::session::Session;
 use relichelper_agent::{paths, refdata};
 
 const DEFAULT_INVENTORY_DB: &str = "data/inventory.sqlite";
@@ -66,10 +69,13 @@ fn main() -> ExitCode {
             args.get(3).map(PathBuf::from),
         ),
         "own" => cmd_own(&args[1..]),
+        "replay" => cmd_feed(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from), false),
+        "daemon" => cmd_feed(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from), true),
         other => {
             eprintln!("unknown command: {other}");
             eprintln!(
-                "usage: relichelper-agent [locate|parse|watch|sync|resolve|relic|own] [ARGS]"
+                "usage: relichelper-agent \
+                 [locate|parse|watch|sync|resolve|relic|own|replay|daemon] [ARGS]"
             );
             ExitCode::FAILURE
         }
@@ -345,6 +351,69 @@ fn cmd_own_from_log(
         }
     }
     eprintln!("recorded {recorded} log-derived roll(s), {unresolved} unresolved");
+    ExitCode::SUCCESS
+}
+
+/// Shared engine for `replay` (one-shot over an existing log) and `daemon`
+/// (follow live): builds a [`Session`] over the reference + inventory caches and
+/// emits one enriched overlay event per line.
+fn cmd_feed(log: Option<PathBuf>, refdb: Option<PathBuf>, live: bool) -> ExitCode {
+    let Some(log_path) = log.or_else(paths::locate) else {
+        eprintln!("EE.log not found; pass it explicitly");
+        return ExitCode::FAILURE;
+    };
+    let refdb = refdb.unwrap_or_else(|| PathBuf::from("data/refdata.sqlite"));
+    let refconn = match refdata::store::open(&refdb) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open reference db {}: {e}", refdb.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let inv_path = inventory_path();
+    let invconn = if inv_path.exists() {
+        inventory::store::open(&inv_path).ok()
+    } else {
+        None
+    };
+
+    let mut session = Session::new(&refconn, invconn.as_ref());
+    let emit = |ev: &relichelper_agent::session::OverlayEvent| {
+        println!("{}", serde_json::to_string(ev).unwrap());
+    };
+
+    if live {
+        eprintln!("daemon watching {} (Ctrl-C to stop)", log_path.display());
+        let mut watcher = match LogWatcher::new(&log_path) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("cannot watch {}: {e}", log_path.display());
+                return ExitCode::FAILURE;
+            }
+        };
+        let result = watcher.watch(|parsed| {
+            if let Ok(Some(ev)) = session.handle(&parsed.event) {
+                emit(&ev);
+            }
+        });
+        if let Err(e) = result {
+            eprintln!("watch error: {e}");
+            return ExitCode::FAILURE;
+        }
+    } else {
+        let file = match std::fs::File::open(&log_path) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("cannot open {}: {e}", log_path.display());
+                return ExitCode::FAILURE;
+            }
+        };
+        for parsed in eelog::parse_reader(BufReader::new(file)) {
+            if let Ok(Some(ev)) = session.handle(&parsed.event) {
+                emit(&ev);
+            }
+        }
+    }
     ExitCode::SUCCESS
 }
 
