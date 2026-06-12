@@ -17,6 +17,7 @@
 //!   own from-log [LOG] [DB] Scan a log for own-reward rolls and record them.
 //!   replay [LOG] [REFDB]   Emit enriched overlay events for an existing log.
 //!   daemon [LOG] [REFDB]   Same, but follow the log live (the overlay feed).
+//!   match TEXT [REFDB]     Fuzzy-match OCR-style text to a known item name.
 //!
 //! Ownership is stored in data/inventory.sqlite (override via
 //! RELICHELPER_INVENTORY_DB). With no arguments it locates the log and watches.
@@ -28,6 +29,7 @@ use std::process::ExitCode;
 
 use relichelper_agent::eelog::{self, watcher::LogWatcher, LogEvent};
 use relichelper_agent::inventory;
+use relichelper_agent::ocr::Matcher;
 use relichelper_agent::refdata::RefinementTier;
 use relichelper_agent::session::Session;
 use relichelper_agent::{paths, refdata};
@@ -71,6 +73,7 @@ fn main() -> ExitCode {
         "own" => cmd_own(&args[1..]),
         "replay" => cmd_feed(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from), false),
         "daemon" => cmd_feed(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from), true),
+        "match" => cmd_match(args.get(1).cloned(), args.get(2).map(PathBuf::from)),
         other => {
             eprintln!("unknown command: {other}");
             eprintln!(
@@ -415,6 +418,40 @@ fn cmd_feed(log: Option<PathBuf>, refdb: Option<PathBuf>, live: bool) -> ExitCod
         }
     }
     ExitCode::SUCCESS
+}
+
+fn cmd_match(text: Option<String>, refdb: Option<PathBuf>) -> ExitCode {
+    let Some(text) = text else {
+        eprintln!("usage: relichelper-agent match TEXT [REFDB]");
+        return ExitCode::FAILURE;
+    };
+    let refdb = refdb.unwrap_or_else(|| PathBuf::from("data/refdata.sqlite"));
+    let conn = match refdata::store::open(&refdb) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open reference db {}: {e}", refdb.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let names = match refdata::store::item_names(&conn) {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("query failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let matcher = Matcher::new(names);
+    eprintln!("corpus: {} item names", matcher.len());
+    match matcher.best(&text, 0.6) {
+        Some(m) => {
+            println!("{}\t{:.3}", m.name, m.score);
+            ExitCode::SUCCESS
+        }
+        None => {
+            eprintln!("no match for {text:?} above threshold");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn cmd_watch(file: Option<PathBuf>) -> ExitCode {

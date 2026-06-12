@@ -6,6 +6,7 @@
 
 pub mod eelog;
 pub mod inventory;
+pub mod ocr;
 pub mod paths;
 pub mod refdata;
 pub mod session;

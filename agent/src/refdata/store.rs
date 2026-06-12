@@ -106,6 +106,26 @@ pub fn resolve_item_path(conn: &Connection, path: &str) -> rusqlite::Result<Opti
         .optional()
 }
 
+/// All distinct reward item display names — the corpus for OCR matching of the
+/// reward screen and prime-part inventory.
+pub fn item_names(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT name FROM items ORDER BY name")?;
+    let names = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(names)
+}
+
+/// All relic display names (e.g. "Axi V14") — the corpus for OCR matching of the
+/// relic refinement screen.
+pub fn relic_names(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT name FROM relics ORDER BY name")?;
+    let names = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(names)
+}
+
 /// Number of relics and drops currently stored — handy for verification.
 pub fn counts(conn: &Connection) -> rusqlite::Result<(i64, i64)> {
     let relics = conn.query_row("SELECT COUNT(*) FROM relics", [], |r| r.get(0))?;

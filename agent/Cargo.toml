@@ -21,5 +21,6 @@ notify = "6"
 dirs = "5"
 thiserror = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
+strsim = "0.11"
 
 [dev-dependencies]
