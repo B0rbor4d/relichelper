@@ -49,7 +49,7 @@ pub fn recognize_grid_file(path: &Path) -> io::Result<Vec<String>> {
 /// grid cell's name, measured from real refinement captures. Tunable per setup
 /// via `RELICHELPER_OCR_COUNT_OFFSET` (the badge position relative to the name
 /// can shift with UI scale / theme).
-const COUNT_BADGE_ABOVE_DEFAULT: f32 = 0.085;
+const COUNT_BADGE_ABOVE_DEFAULT: f32 = 0.075;
 const COUNT_BADGE_H: f32 = 0.060; // generous, to tolerate badge-position variance
 
 fn count_badge_above() -> f32 {
@@ -95,8 +95,8 @@ pub fn recognize_grid_with_counts(path: &Path) -> io::Result<Vec<GridCell>> {
         name_pre.save(&name_tmp).map_err(to_io)?;
         let name = ocr_image(&name_tmp)?;
 
-        // Count badge (white "xNN") sits at the icon's TOP-LEFT, above and left
-        // of the centred name.
+        // Count badge (red "xNN") sits at the icon's TOP-LEFT, above and left of
+        // the centred name. Same red text as the name, so use the theme mask.
         let cy = b.y + b.h / 2;
         let cx = b.x + b.w / 2;
         let count_h = (COUNT_BADGE_H * ih as f32) as u32;
@@ -110,7 +110,10 @@ pub fn recognize_grid_with_counts(path: &Path) -> io::Result<Vec<GridCell>> {
             h: count_h,
         }
         .clamped(iw, ih);
-        let count_pre = preprocess_bright(&img.crop_imm(count.x, count.y, count.w, count.h));
+        // A white quiet-zone border is needed for Tesseract to read the short
+        // "xNN" badge reliably.
+        let count_pre =
+            with_white_border(&preprocess(&img.crop_imm(count.x, count.y, count.w, count.h)), 30);
         let count_tmp = std::env::temp_dir().join(format!("relich_ocr_gridc_{i}.png"));
         count_pre.save(&count_tmp).map_err(to_io)?;
         let count = parse_count(&ocr_digits(&count_tmp)?);
@@ -151,34 +154,23 @@ fn red_fraction(rgb: &image::RgbImage, mask: &TextMask, rect: &Rect) -> f32 {
     hits as f32 / total as f32
 }
 
-/// Binarises bright (white) text such as the count badge: light pixels become
-/// black on white. Independent of the theme colour.
-fn preprocess_bright(img: &DynamicImage) -> DynamicImage {
-    let luma = img.to_luma8();
-    let bin: ImageBuffer<Luma<u8>, Vec<u8>> =
-        ImageBuffer::from_fn(luma.width(), luma.height(), |x, y| {
-            if luma.get_pixel(x, y)[0] > 140 {
-                Luma([0])
-            } else {
-                Luma([255])
-            }
-        });
-    let up = imageops::resize(
-        &bin,
-        bin.width() * 2,
-        bin.height() * 2,
-        imageops::FilterType::Lanczos3,
-    );
-    DynamicImage::ImageLuma8(up)
+/// Surrounds an image with a white border, giving Tesseract the quiet zone it
+/// needs to read short strings like the count badge.
+fn with_white_border(img: &DynamicImage, pad: u32) -> DynamicImage {
+    let src = img.to_luma8();
+    let (w, h) = (src.width(), src.height());
+    let mut canvas = ImageBuffer::from_pixel(w + 2 * pad, h + 2 * pad, Luma([255u8]));
+    imageops::overlay(&mut canvas, &src, pad as i64, pad as i64);
+    DynamicImage::ImageLuma8(canvas)
 }
 
-/// Runs Tesseract restricted to the count alphabet ("x" + digits), single line.
+/// Reads the count badge as a uniform text block (psm 6 handles the short,
+/// stylised "xNN" better than single-line modes).
 fn ocr_digits(path: &Path) -> io::Result<String> {
     let output = Command::new("tesseract")
         .arg(path)
         .arg("stdout")
-        .args(["--psm", "7"])
-        .args(["-c", "tessedit_char_whitelist=xX0123456789"])
+        .args(["--psm", "6"])
         .output()?;
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
