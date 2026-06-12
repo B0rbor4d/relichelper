@@ -669,8 +669,9 @@ fn cmd_own_scan(
 
     if matches!(kind, ScanKind::Relics) {
         eprintln!(
-            "note: set the refinement screen's OWNED filter first — unowned relics look the \
-             same to OCR (only the icon is desaturated), so an ALL view would over-record."
+            "note: OWNED sorts owned relics first but unowned (desaturated, eye marker) still \
+             follow. OCR can't tell them apart reliably, so only scan pages up to where the \
+             greyed-out relics begin."
         );
     }
 
