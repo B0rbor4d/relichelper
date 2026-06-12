@@ -32,7 +32,7 @@ A cross-platform **Warframe relic companion** for **Linux and Windows** — a fo
 | 2 | Reference-data sync (drop tables → SQLite, path↔name) | ✅ done, verified end-to-end |
 | 3 | Data-driven relic model (drop table + vaulted/owned) | ✅ done, verified end-to-end |
 | 4 | Owned-item tracking (manual + log-derived) | ✅ done, verified end-to-end (OCR sync in phase 5) |
-| 5 | OCR layer (reward screen + inventory sync) | 🔄 reward-screen OCR done & verified 8/8 on real captures (`--features ocr`); live capture (xcap) + inventory scroll wired with the overlay |
+| 5 | OCR layer (reward screen + inventory sync) | 🔄 reward OCR 8/8 + scroll-proof relic-grid OCR (content-detected, 17–20 relics/page) verified on real captures (`--features ocr`); live screen capture (xcap) wired with the overlay |
 | 6 | Tauri overlay | ⬜ planned |
 | 7 | Web app + hosted live service (+ matchmaking) | ⬜ planned |
 
@@ -83,7 +83,7 @@ cargo run   --manifest-path agent/Cargo.toml -- match "OCR text" [DB]  # snap OC
 cargo run --features ocr --manifest-path agent/Cargo.toml -- recognize IMG.png [DB]  # OCR a reward-screen capture
 ```
 
-OCR (`--features ocr`) needs the `tesseract` binary installed; it crops the four reward-name boxes, isolates the theme-coloured name text, and snaps each to a canonical item name. The text colour is hue-agnostic and configurable for custom UI themes via `RELICHELPER_OCR_TEXT_RGB="r,g,b"` (default Warframe red). `recognize-relics` (OCR of the relic refinement grid) is experimental and needs per-setup geometry tuning.
+OCR (`--features ocr`) needs the `tesseract` binary installed; it crops the four reward-name boxes, isolates the theme-coloured name text, and snaps each to a canonical item name. The text colour is hue-agnostic and configurable for custom UI themes via `RELICHELPER_OCR_TEXT_RGB="r,g,b"` (default Warframe red). `recognize-relics` OCRs the relic refinement grid by *detecting* the name rows/columns in the image (Y/X projection of the isolated text), so it is independent of scroll position — no fixed cell coordinates.
 
 The `replay`/`daemon` feed is the data stream the overlay (phase 6) and web app (phase 7) consume: per reward roll it emits a self-contained event with vault status, ownership, and relic sources already resolved — reconstructed entirely from `EE.log` + the local caches, no OCR.
 
@@ -134,7 +134,7 @@ Ein plattformübergreifender **Warframe-Relikt-Begleiter** für **Linux und Wind
 | 2 | Referenzdaten-Sync (Drop-Tabellen → SQLite, Pfad↔Name) | ✅ fertig, end-to-end verifiziert |
 | 3 | Datengetriebenes Relikt-Modell (Drop-Tabelle + Vaulted/Owned) | ✅ fertig, end-to-end verifiziert |
 | 4 | Besitz-Tracking (manuell + log-abgeleitet) | ✅ fertig, end-to-end verifiziert (OCR-Sync in Phase 5) |
-| 5 | OCR-Schicht (Belohnungsscreen + Inventar-Sync) | 🔄 Reward-Screen-OCR fertig & 8/8 an echten Captures verifiziert (`--features ocr`); Live-Capture (xcap) + Inventar-Scroll mit dem Overlay |
+| 5 | OCR-Schicht (Belohnungsscreen + Inventar-Sync) | 🔄 Reward-OCR 8/8 + scroll-unabhängige Relic-Grid-OCR (inhaltsbasiert, 17–20 Relikte/Seite) an echten Captures verifiziert (`--features ocr`); Live-Capture (xcap) mit dem Overlay |
 | 6 | Tauri-Overlay | ⬜ geplant |
 | 7 | Web-App + gehosteter Live-Service (+ Matchmaking) | ⬜ geplant |
 
@@ -185,7 +185,7 @@ cargo run   --manifest-path agent/Cargo.toml -- match "OCR-Text" [DB]  # OCR-Tex
 cargo run --features ocr --manifest-path agent/Cargo.toml -- recognize IMG.png [DB]  # Reward-Screen-Capture per OCR
 ```
 
-OCR (`--features ocr`) braucht das `tesseract`-Binary; es croppt die vier Reward-Namensboxen, isoliert die themefarbene Schrift und bildet jeden Treffer auf einen kanonischen Item-Namen ab. Die Schriftfarbe ist hue-agnostisch und für Custom-UI-Themes per `RELICHELPER_OCR_TEXT_RGB="r,g,b"` konfigurierbar (Default Warframe-Rot). `recognize-relics` (OCR des Relikt-Refinement-Grids) ist experimentell und braucht Geometrie-Feintuning pro Setup.
+OCR (`--features ocr`) braucht das `tesseract`-Binary; es croppt die vier Reward-Namensboxen, isoliert die themefarbene Schrift und bildet jeden Treffer auf einen kanonischen Item-Namen ab. Die Schriftfarbe ist hue-agnostisch und für Custom-UI-Themes per `RELICHELPER_OCR_TEXT_RGB="r,g,b"` konfigurierbar (Default Warframe-Rot). `recognize-relics` OCRt das Relikt-Refinement-Grid, indem es die Namens-Zeilen/-Spalten *im Bild erkennt* (Y/X-Projektion der isolierten Schrift) — also **unabhängig von der Scroll-Position**, ohne feste Zell-Koordinaten.
 
 Der `replay`/`daemon`-Feed ist der Datenstrom, den Overlay (Phase 6) und Web-App (Phase 7) konsumieren: pro Reward-Roll ein in sich geschlossenes Event mit bereits aufgelöstem Vault-Status, Besitz und Relikt-Quellen — vollständig aus `EE.log` + lokalen Caches rekonstruiert, ohne OCR.
 

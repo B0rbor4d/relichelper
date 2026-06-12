@@ -14,7 +14,8 @@ use std::process::Command;
 
 use image::{imageops, DynamicImage, GenericImageView, ImageBuffer, Luma};
 
-use super::regions::{relic_grid_name_boxes, reward_name_boxes, Rect};
+use super::regions::{reward_name_boxes, Rect};
+use super::segment::find_runs;
 
 fn to_io<E: std::fmt::Display>(e: E) -> io::Error {
     io::Error::new(io::ErrorKind::Other, e.to_string())
@@ -34,12 +35,74 @@ pub fn recognize_reward(img: &DynamicImage, w: u32, h: u32) -> io::Result<Vec<St
     recognize_boxes(img, &reward_name_boxes(w, h), "reward")
 }
 
-/// OCRs every relic name in the refinement-grid screenshot, row-major. Cells
-/// that are empty or off-grid yield noise; the caller filters by match score.
+/// OCRs every relic name in a refinement-grid screenshot. The grid is found by
+/// content (not fixed positions), so it works at any scroll offset.
 pub fn recognize_relic_grid_file(path: &Path) -> io::Result<Vec<String>> {
     let img = image::open(path).map_err(to_io)?;
-    let (w, h) = img.dimensions();
-    recognize_boxes(&img, &relic_grid_name_boxes(w, h), "relic")
+    let cells = detect_text_cells(&img);
+    recognize_boxes(&img, &cells, "grid")
+}
+
+/// Region of the screen that holds the relic/inventory grid, as fractions:
+/// left of the right-hand detail panel, below the header, above the action bar.
+const GRID_ROI: (f32, f32, f32, f32) = (0.02, 0.27, 0.72, 0.96);
+
+/// Detects text cells in the grid ROI by projecting the isolated theme-coloured
+/// text onto Y (to find name rows) then X within each row (to find individual
+/// names). Returns padded rectangles in full-image coordinates — scroll
+/// position is irrelevant because nothing is hard-coded.
+fn detect_text_cells(img: &DynamicImage) -> Vec<Rect> {
+    let rgb = img.to_rgb8();
+    let (iw, ih) = (rgb.width(), rgb.height());
+    let mask = TextMask::from_rgb(theme_text_color());
+
+    let ox = (GRID_ROI.0 * iw as f32) as u32;
+    let oy = (GRID_ROI.1 * ih as f32) as u32;
+    let rw = ((GRID_ROI.2 * iw as f32) as u32 - ox) as usize;
+    let rh = ((GRID_ROI.3 * ih as f32) as u32 - oy) as usize;
+
+    // ROI text mask (true = theme-coloured text pixel).
+    let mut m = vec![false; rw * rh];
+    for ry in 0..rh {
+        for rx in 0..rw {
+            if mask.is_text(&rgb.get_pixel(ox + rx as u32, oy + ry as u32).0) {
+                m[ry * rw + rx] = true;
+            }
+        }
+    }
+
+    // Y projection -> name rows.
+    let row_profile: Vec<u32> = (0..rh)
+        .map(|ry| (0..rw).filter(|&rx| m[ry * rw + rx]).count() as u32)
+        .collect();
+    let row_thr = (rw as u32 / 120).max(3);
+    let row_gap = (rh / 90).max(3);
+    let row_min = (rh / 90).max(6);
+
+    let pad = 6u32;
+    let mut cells = Vec::new();
+    for (by0, by1) in find_runs(&row_profile, row_thr, row_gap, row_min) {
+        let bh = (by1 - by0) as u32;
+        // X projection within this row -> individual names.
+        let col_profile: Vec<u32> = (0..rw)
+            .map(|rx| (by0..by1).filter(|&ry| m[ry * rw + rx]).count() as u32)
+            .collect();
+        let col_thr = (bh / 6).max(1);
+        let col_gap = (rw / 60).max(8);
+        let col_min = (rw / 40).max(20);
+        for (bx0, bx1) in find_runs(&col_profile, col_thr, col_gap, col_min) {
+            cells.push(
+                Rect {
+                    x: (ox + bx0 as u32).saturating_sub(pad),
+                    y: (oy + by0 as u32).saturating_sub(pad),
+                    w: (bx1 - bx0) as u32 + 2 * pad,
+                    h: bh + 2 * pad,
+                }
+                .clamped(iw, ih),
+            );
+        }
+    }
+    cells
 }
 
 /// Crops each box, preprocesses, and OCRs it; `tag` only names the temp files.
