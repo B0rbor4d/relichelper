@@ -29,7 +29,7 @@ A cross-platform **Warframe relic companion** for **Linux and Windows** — a fo
 |------:|-----------|--------|
 | 0 | Monorepo scaffold + dev tooling | ✅ done |
 | 1 | EE.log parser + path resolution (Rust) | ✅ done, verified against a real log |
-| 2 | Reference-data sync (drop tables → SQLite, path↔name map) | ⏳ next |
+| 2 | Reference-data sync (drop tables → SQLite) | 🔄 drop tables + vaulted + SQLite done; path↔name map next |
 | 3 | Data-driven relic model (drop table + vaulted/owned) | ⬜ planned |
 | 4 | Owned-item tracking (OCR inventory sync + log + manual) | ⬜ planned |
 | 5 | OCR layer (reward screen + inventory) | ⬜ planned |
@@ -73,6 +73,7 @@ cargo test  --manifest-path agent/Cargo.toml      # run the test suite
 cargo run   --manifest-path agent/Cargo.toml -- locate   # show probed EE.log paths
 cargo run   --manifest-path agent/Cargo.toml -- watch     # follow live, one JSON event per line
 cargo run   --manifest-path agent/Cargo.toml -- parse [FILE]   # batch-parse a log
+cargo run   --manifest-path agent/Cargo.toml -- sync HTML [DB]  # drop-table HTML -> SQLite cache
 ```
 
 Linux system dependencies (for later phases — overlay & OCR):
@@ -119,7 +120,7 @@ Ein plattformübergreifender **Warframe-Relikt-Begleiter** für **Linux und Wind
 |------:|------------|--------|
 | 0 | Monorepo-Scaffold + Dev-Tooling | ✅ fertig |
 | 1 | EE.log-Parser + Pfad-Auflösung (Rust) | ✅ fertig, gegen echte Log verifiziert |
-| 2 | Referenzdaten-Sync (Drop-Tabellen → SQLite, Pfad↔Name) | ⏳ als Nächstes |
+| 2 | Referenzdaten-Sync (Drop-Tabellen → SQLite) | 🔄 Drop-Tabellen + Vaulted + SQLite fertig; Pfad↔Name als Nächstes |
 | 3 | Datengetriebenes Relikt-Modell (Drop-Tabelle + Vaulted/Owned) | ⬜ geplant |
 | 4 | Besitz-Tracking (OCR-Inventar-Sync + Log + manuell) | ⬜ geplant |
 | 5 | OCR-Schicht (Belohnungsscreen + Inventar) | ⬜ geplant |
@@ -163,6 +164,7 @@ cargo test  --manifest-path agent/Cargo.toml      # Testsuite ausführen
 cargo run   --manifest-path agent/Cargo.toml -- locate   # geprüfte EE.log-Pfade anzeigen
 cargo run   --manifest-path agent/Cargo.toml -- watch     # live folgen, ein JSON-Event pro Zeile
 cargo run   --manifest-path agent/Cargo.toml -- parse [DATEI]   # Log batch-parsen
+cargo run   --manifest-path agent/Cargo.toml -- sync HTML [DB]  # Drop-Table-HTML -> SQLite-Cache
 ```
 
 Linux-Systemabhängigkeiten (für spätere Phasen — Overlay & OCR):

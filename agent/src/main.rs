@@ -5,6 +5,8 @@
 //!   parse [FILE]           Batch-parse a log (defaults to the located one) and
 //!                          print each recognised event as a JSON line.
 //!   watch [FILE]           Follow the log live, printing events as JSON lines.
+//!   sync HTML [DB]         Parse the official drop-table HTML into the SQLite
+//!                          reference cache (DB defaults to data/refdata.sqlite).
 //!
 //! With no arguments it locates the log and starts watching.
 
@@ -13,7 +15,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use relichelper_agent::eelog::{self, watcher::LogWatcher};
-use relichelper_agent::paths;
+use relichelper_agent::{paths, refdata};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -23,9 +25,10 @@ fn main() -> ExitCode {
         "locate" => cmd_locate(),
         "parse" => cmd_parse(args.get(1).map(PathBuf::from)),
         "watch" => cmd_watch(args.get(1).map(PathBuf::from)),
+        "sync" => cmd_sync(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from)),
         other => {
             eprintln!("unknown command: {other}");
-            eprintln!("usage: relichelper-agent [locate|parse|watch] [FILE]");
+            eprintln!("usage: relichelper-agent [locate|parse|watch|sync] [ARGS]");
             ExitCode::FAILURE
         }
     }
@@ -74,6 +77,51 @@ fn cmd_parse(file: Option<PathBuf>) -> ExitCode {
         let _ = writeln!(out, "{}", serde_json::to_string(&ev.event).unwrap());
     }
     eprintln!("parsed {} relic-workflow events from {}", events.len(), path.display());
+    ExitCode::SUCCESS
+}
+
+fn cmd_sync(html: Option<PathBuf>, db: Option<PathBuf>) -> ExitCode {
+    let Some(html_path) = html else {
+        eprintln!("usage: relichelper-agent sync HTML [DB]");
+        return ExitCode::FAILURE;
+    };
+    let db_path = db.unwrap_or_else(|| PathBuf::from("data/refdata.sqlite"));
+
+    let html = match std::fs::read_to_string(&html_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("cannot read {}: {e}", html_path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let relics = refdata::parse_drop_data(&html);
+    if relics.is_empty() {
+        eprintln!("no relics parsed from {} — is this the drop-table HTML?", html_path.display());
+        return ExitCode::FAILURE;
+    }
+    let vaulted = relics.iter().filter(|r| r.vaulted).count();
+
+    let mut conn = match refdata::store::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open db {}: {e}", db_path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(e) = refdata::store::persist(&mut conn, &relics) {
+        eprintln!("persist failed: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    let (rc, dc) = refdata::store::counts(&conn).unwrap_or((0, 0));
+    eprintln!(
+        "synced {} relics ({} vaulted) / {} drops -> {}",
+        rc,
+        vaulted,
+        dc,
+        db_path.display()
+    );
     ExitCode::SUCCESS
 }
 

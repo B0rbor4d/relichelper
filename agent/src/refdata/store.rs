@@ -1,0 +1,127 @@
+//! SQLite persistence for the parsed reference data.
+//!
+//! The cache is rebuilt wholesale on each sync (the official table changes with
+//! patches), so persistence is a simple delete-and-reinsert inside one
+//! transaction.
+
+use std::path::Path;
+
+use rusqlite::{params, Connection};
+
+use super::model::{era_word, Relic};
+
+const SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS relics (
+    name    TEXT PRIMARY KEY,
+    era     TEXT NOT NULL,
+    code    TEXT NOT NULL,
+    vaulted INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS drops (
+    relic  TEXT NOT NULL REFERENCES relics(name),
+    tier   TEXT NOT NULL,
+    item   TEXT NOT NULL,
+    rarity TEXT NOT NULL,
+    chance REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_drops_relic ON drops(relic);
+CREATE INDEX IF NOT EXISTS idx_drops_item  ON drops(item);
+CREATE INDEX IF NOT EXISTS idx_relics_vaulted ON relics(vaulted);
+";
+
+/// Opens (creating if needed) the reference-data database at `path` and ensures
+/// the schema exists.
+pub fn open(path: &Path) -> rusqlite::Result<Connection> {
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let conn = Connection::open(path)?;
+    conn.execute_batch(SCHEMA)?;
+    Ok(conn)
+}
+
+/// Replaces all cached relics/drops with the given set in a single transaction.
+pub fn persist(conn: &mut Connection, relics: &[Relic]) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM drops", [])?;
+    tx.execute("DELETE FROM relics", [])?;
+
+    for relic in relics {
+        tx.execute(
+            "INSERT INTO relics(name, era, code, vaulted) VALUES (?1, ?2, ?3, ?4)",
+            params![relic.name, era_word(&relic.era), relic.code, relic.vaulted as i32],
+        )?;
+        for (tier, drops) in &relic.tiers {
+            for d in drops {
+                tx.execute(
+                    "INSERT INTO drops(relic, tier, item, rarity, chance) \
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![relic.name, tier.as_str(), d.item, d.rarity, d.chance],
+                )?;
+            }
+        }
+    }
+
+    tx.commit()
+}
+
+/// Number of relics and drops currently stored — handy for verification.
+pub fn counts(conn: &Connection) -> rusqlite::Result<(i64, i64)> {
+    let relics = conn.query_row("SELECT COUNT(*) FROM relics", [], |r| r.get(0))?;
+    let drops = conn.query_row("SELECT COUNT(*) FROM drops", [], |r| r.get(0))?;
+    Ok((relics, drops))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::refdata::parse::parse_drop_data;
+
+    fn fixture() -> String {
+        std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/drops_sample.html"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn persists_and_reads_back_counts() {
+        let relics = parse_drop_data(&fixture());
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        persist(&mut conn, &relics).unwrap();
+
+        let (relic_count, drop_count) = counts(&conn).unwrap();
+        assert_eq!(relic_count, 2);
+        // Axi A1: 4 tiers * 6 + Axi A10: 2 tiers * 6 = 36
+        assert_eq!(drop_count, 36);
+    }
+
+    #[test]
+    fn persist_is_idempotent() {
+        let relics = parse_drop_data(&fixture());
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        persist(&mut conn, &relics).unwrap();
+        persist(&mut conn, &relics).unwrap();
+        assert_eq!(counts(&conn).unwrap(), (2, 36));
+    }
+
+    #[test]
+    fn vaulted_flag_round_trips() {
+        let relics = parse_drop_data(&fixture());
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        persist(&mut conn, &relics).unwrap();
+
+        let vaulted: i64 = conn
+            .query_row(
+                "SELECT vaulted FROM relics WHERE name = 'Axi A10'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(vaulted, 1);
+    }
+}

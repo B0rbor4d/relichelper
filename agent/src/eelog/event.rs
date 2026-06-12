@@ -11,7 +11,12 @@ use serde::{Deserialize, Serialize};
 /// `Intact` is the unrefined base state and never appears in the refine dialog
 /// (you only ever *refine up to* the higher tiers), but it is part of the drop
 /// table model, so it is included here for completeness.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Declaration order is the natural refinement order, so derived `Ord` sorts
+/// `Intact < Exceptional < Flawless < Radiant`.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum RefinementTier {
     Intact,
@@ -30,6 +35,17 @@ impl RefinementTier {
             "FLAWLESS" => Some(Self::Flawless),
             "RADIANT" => Some(Self::Radiant),
             _ => None,
+        }
+    }
+
+    /// Stable lower-case identifier (matches the serde representation), suitable
+    /// for persistence.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Intact => "intact",
+            Self::Exceptional => "exceptional",
+            Self::Flawless => "flawless",
+            Self::Radiant => "radiant",
         }
     }
 }
