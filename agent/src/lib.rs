@@ -5,5 +5,6 @@
 //! bridge.
 
 pub mod eelog;
+pub mod inventory;
 pub mod paths;
 pub mod refdata;

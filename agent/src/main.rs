@@ -11,16 +11,44 @@
 //!                          status and relic sources (JSON).
 //!   relic NAME [TIER] [DB] Print a relic's drop table at TIER (default radiant)
 //!                          with per-drop vault/owned annotation (JSON).
+//!   own list               List owned items.
+//!   own add ITEM [COUNT]   Manually record owning COUNT (default 1) of ITEM.
+//!   own remove ITEM        Forget an owned item.
+//!   own from-log [LOG] [DB] Scan a log for own-reward rolls and record them.
 //!
-//! With no arguments it locates the log and starts watching.
+//! Ownership is stored in data/inventory.sqlite (override via
+//! RELICHELPER_INVENTORY_DB). With no arguments it locates the log and watches.
 
+use std::collections::HashSet;
 use std::io::{BufReader, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use relichelper_agent::eelog::{self, watcher::LogWatcher};
+use relichelper_agent::eelog::{self, watcher::LogWatcher, LogEvent};
+use relichelper_agent::inventory;
 use relichelper_agent::refdata::RefinementTier;
 use relichelper_agent::{paths, refdata};
+
+const DEFAULT_INVENTORY_DB: &str = "data/inventory.sqlite";
+
+/// Inventory DB path, overridable via `RELICHELPER_INVENTORY_DB` for testing.
+fn inventory_path() -> PathBuf {
+    std::env::var("RELICHELPER_INVENTORY_DB")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_INVENTORY_DB))
+}
+
+/// Loads the owned-item set for annotating views. Returns `None` (ownership
+/// unknown) when no inventory has been started yet.
+fn load_owned() -> Option<HashSet<String>> {
+    let path = inventory_path();
+    if !path.exists() {
+        return None;
+    }
+    inventory::store::open(&path)
+        .ok()
+        .and_then(|c| inventory::store::owned_set(&c).ok())
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -37,9 +65,12 @@ fn main() -> ExitCode {
             args.get(2).cloned(),
             args.get(3).map(PathBuf::from),
         ),
+        "own" => cmd_own(&args[1..]),
         other => {
             eprintln!("unknown command: {other}");
-            eprintln!("usage: relichelper-agent [locate|parse|watch|sync|resolve|relic] [ARGS]");
+            eprintln!(
+                "usage: relichelper-agent [locate|parse|watch|sync|resolve|relic|own] [ARGS]"
+            );
             ExitCode::FAILURE
         }
     }
@@ -149,7 +180,7 @@ fn cmd_resolve(path: Option<String>, db: Option<PathBuf>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match refdata::resolve_reward(&conn, &item_path) {
+    match refdata::resolve_reward(&conn, &item_path, load_owned().as_ref()) {
         Ok(Some(view)) => {
             println!("{}", serde_json::to_string_pretty(&view).unwrap());
             ExitCode::SUCCESS
@@ -188,7 +219,7 @@ fn cmd_relic(name: Option<String>, tier: Option<String>, db: Option<PathBuf>) ->
             return ExitCode::FAILURE;
         }
     };
-    match refdata::relic_view(&conn, &relic, tier) {
+    match refdata::relic_view(&conn, &relic, tier, load_owned().as_ref()) {
         Ok(Some(view)) => {
             println!("{}", serde_json::to_string_pretty(&view).unwrap());
             ExitCode::SUCCESS
@@ -202,6 +233,119 @@ fn cmd_relic(name: Option<String>, tier: Option<String>, db: Option<PathBuf>) ->
             ExitCode::FAILURE
         }
     }
+}
+
+fn cmd_own(args: &[String]) -> ExitCode {
+    let sub = args.first().map(String::as_str).unwrap_or("list");
+    let inv_path = inventory_path();
+    let conn = match inventory::store::open(&inv_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open inventory {}: {e}", inv_path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match sub {
+        "list" => match inventory::store::list(&conn) {
+            Ok(items) => {
+                println!("{}", serde_json::to_string_pretty(&items).unwrap());
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("query failed: {e}");
+                ExitCode::FAILURE
+            }
+        },
+        "add" => {
+            let Some(item) = args.get(1) else {
+                eprintln!("usage: own add ITEM [COUNT]");
+                return ExitCode::FAILURE;
+            };
+            let delta: i64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1);
+            match inventory::store::add(&conn, item, delta, inventory::Source::Manual) {
+                Ok(n) => {
+                    eprintln!("{item}: now {n}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("failed: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        "remove" => {
+            let Some(item) = args.get(1) else {
+                eprintln!("usage: own remove ITEM");
+                return ExitCode::FAILURE;
+            };
+            match inventory::store::remove(&conn, item) {
+                Ok(true) => ExitCode::SUCCESS,
+                Ok(false) => {
+                    eprintln!("{item} was not tracked");
+                    ExitCode::FAILURE
+                }
+                Err(e) => {
+                    eprintln!("failed: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        "from-log" => cmd_own_from_log(
+            &conn,
+            args.get(1).map(PathBuf::from),
+            args.get(2).map(PathBuf::from),
+        ),
+        other => {
+            eprintln!("unknown own subcommand: {other} (list|add|remove|from-log)");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Scans a log for the player's own reward rolls, resolves each item path via
+/// the reference cache, and records it (log-derived ownership).
+fn cmd_own_from_log(
+    inv: &rusqlite::Connection,
+    log: Option<PathBuf>,
+    refdb: Option<PathBuf>,
+) -> ExitCode {
+    let Some(log_path) = log.or_else(paths::locate) else {
+        eprintln!("EE.log not found; pass it explicitly");
+        return ExitCode::FAILURE;
+    };
+    let refdb = refdb.unwrap_or_else(|| PathBuf::from("data/refdata.sqlite"));
+    let refconn = match refdata::store::open(&refdb) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open reference db {}: {e}", refdb.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let file = match std::fs::File::open(&log_path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("cannot open {}: {e}", log_path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let (mut recorded, mut unresolved) = (0u32, 0u32);
+    for parsed in eelog::parse_reader(BufReader::new(file)) {
+        if let LogEvent::OwnReward { item_path, .. } = parsed.event {
+            match refdata::store::resolve_item_path(&refconn, &item_path) {
+                Ok(Some(name)) => {
+                    if inventory::store::record_reward(inv, &name).is_ok() {
+                        recorded += 1;
+                        eprintln!("  + {name}");
+                    }
+                }
+                _ => unresolved += 1,
+            }
+        }
+    }
+    eprintln!("recorded {recorded} log-derived roll(s), {unresolved} unresolved");
+    ExitCode::SUCCESS
 }
 
 fn cmd_watch(file: Option<PathBuf>) -> ExitCode {

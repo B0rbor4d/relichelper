@@ -10,11 +10,21 @@
 //! `owned` is `None` everywhere for now; inventory tracking (phase 4) will fill
 //! it in.
 
+use std::collections::HashSet;
+
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use super::naming;
 use crate::eelog::event::RefinementTier;
+
+/// Ownership context passed to the view builders: `None` leaves `owned`
+/// unknown, `Some(set)` annotates each item against the owned-item names.
+pub type Owned<'a> = Option<&'a HashSet<String>>;
+
+fn owned_flag(owned: Owned, item: &str) -> Option<bool> {
+    owned.map(|set| set.contains(item))
+}
 
 /// One possible reward within a relic, annotated for decision-making.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -63,6 +73,7 @@ pub fn relic_view(
     conn: &Connection,
     relic: &str,
     tier: RefinementTier,
+    owned: Owned,
 ) -> rusqlite::Result<Option<RelicView>> {
     let meta = conn
         .query_row(
@@ -83,12 +94,14 @@ pub fn relic_view(
     )?;
     let drops: Vec<DropView> = stmt
         .query_map(params![relic, tier.as_str()], |r| {
+            let item: String = r.get(0)?;
+            let owned = owned_flag(owned, &item);
             Ok(DropView {
-                item: r.get(0)?,
+                item,
                 rarity: r.get(1)?,
                 chance: r.get(2)?,
                 item_vaulted: r.get::<_, i64>(3)? != 0,
-                owned: None,
+                owned,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -108,7 +121,11 @@ pub fn relic_view(
 
 /// Resolves an EE.log reward path to a [`RewardView`], or `None` if the item is
 /// not a known relic reward.
-pub fn resolve_reward(conn: &Connection, path: &str) -> rusqlite::Result<Option<RewardView>> {
+pub fn resolve_reward(
+    conn: &Connection,
+    path: &str,
+    owned: Owned,
+) -> rusqlite::Result<Option<RewardView>> {
     let key = naming::path_key(path);
     let item = conn
         .query_row(
@@ -120,6 +137,7 @@ pub fn resolve_reward(conn: &Connection, path: &str) -> rusqlite::Result<Option<
     let Some((name, item_vaulted)) = item else {
         return Ok(None);
     };
+    let owned_flag = owned_flag(owned, &name);
 
     let mut stmt = conn.prepare(
         "SELECT DISTINCT d.relic, r.vaulted \
@@ -139,7 +157,7 @@ pub fn resolve_reward(conn: &Connection, path: &str) -> rusqlite::Result<Option<
     Ok(Some(RewardView {
         item: name,
         item_vaulted: item_vaulted != 0,
-        owned: None,
+        owned: owned_flag,
         sources,
     }))
 }
@@ -165,19 +183,21 @@ mod tests {
     #[test]
     fn relic_view_returns_full_tier_table() {
         let conn = db();
-        let view = relic_view(&conn, "Axi A1", RefinementTier::Radiant)
+        let view = relic_view(&conn, "Axi A1", RefinementTier::Radiant, None)
             .unwrap()
             .unwrap();
         assert_eq!(view.drops.len(), 6);
         assert!(!view.vaulted, "Axi A1 is farmable in the fixture");
         // Sorted by descending chance.
         assert!(view.drops[0].chance >= view.drops[5].chance);
+        // No ownership context -> unknown.
+        assert!(view.drops.iter().all(|d| d.owned.is_none()));
     }
 
     #[test]
     fn vaulted_relic_marks_items_vaulted() {
         let conn = db();
-        let view = relic_view(&conn, "Axi A10", RefinementTier::Intact)
+        let view = relic_view(&conn, "Axi A10", RefinementTier::Intact, None)
             .unwrap()
             .unwrap();
         assert!(view.vaulted);
@@ -188,11 +208,11 @@ mod tests {
     #[test]
     fn unknown_relic_or_tier_is_none() {
         let conn = db();
-        assert!(relic_view(&conn, "Axi Z99", RefinementTier::Radiant)
+        assert!(relic_view(&conn, "Axi Z99", RefinementTier::Radiant, None)
             .unwrap()
             .is_none());
         // Axi A10 has no Exceptional tier in the fixture.
-        assert!(relic_view(&conn, "Axi A10", RefinementTier::Exceptional)
+        assert!(relic_view(&conn, "Axi A10", RefinementTier::Exceptional, None)
             .unwrap()
             .is_none());
     }
@@ -203,6 +223,7 @@ mod tests {
         let view = resolve_reward(
             &conn,
             "/Lotus/StoreItems/Types/Recipes/Weapons/WeaponParts/AkstilettoPrimeBarrel",
+            None,
         )
         .unwrap()
         .unwrap();
@@ -211,5 +232,36 @@ mod tests {
         assert!(!view.item_vaulted);
         assert!(view.sources.iter().any(|s| s.relic == "Axi A1" && !s.vaulted));
         assert_eq!(view.owned, None);
+    }
+
+    #[test]
+    fn ownership_context_annotates_drops() {
+        let conn = db();
+        let owned: HashSet<String> = ["Akstiletto Prime Barrel".to_string()].into_iter().collect();
+
+        let view = relic_view(&conn, "Axi A1", RefinementTier::Radiant, Some(&owned))
+            .unwrap()
+            .unwrap();
+        let barrel = view
+            .drops
+            .iter()
+            .find(|d| d.item == "Akstiletto Prime Barrel")
+            .unwrap();
+        assert_eq!(barrel.owned, Some(true));
+        let other = view
+            .drops
+            .iter()
+            .find(|d| d.item == "Nikana Prime Blueprint")
+            .unwrap();
+        assert_eq!(other.owned, Some(false));
+
+        let reward = resolve_reward(
+            &conn,
+            "/x/AkstilettoPrimeBarrel",
+            Some(&owned),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(reward.owned, Some(true));
     }
 }
