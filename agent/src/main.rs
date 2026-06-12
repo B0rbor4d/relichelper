@@ -76,6 +76,7 @@ fn main() -> ExitCode {
         "replay" => cmd_feed(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from), false),
         "daemon" => cmd_feed(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from), true),
         "match" => cmd_match(args.get(1).cloned(), args.get(2).map(PathBuf::from)),
+        "capture-reward" => cmd_capture_reward(args.get(1).map(PathBuf::from)),
         "recognize" => cmd_recognize(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from)),
         "recognize-relics" => {
             cmd_recognize_relics(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from))
@@ -540,6 +541,45 @@ fn recognize_grid_relics(
 #[cfg(not(feature = "ocr"))]
 fn cmd_recognize_relics(_file: Option<PathBuf>, _refdb: Option<PathBuf>) -> ExitCode {
     eprintln!("this build has no OCR support; rebuild with: cargo build --features ocr");
+    ExitCode::FAILURE
+}
+
+#[cfg(feature = "capture")]
+fn cmd_capture_reward(refdb: Option<PathBuf>) -> ExitCode {
+    let refdb = refdb.unwrap_or_else(|| PathBuf::from("data/refdata.sqlite"));
+    let conn = match refdata::store::open(&refdb) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open reference db {}: {e}", refdb.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let matcher = match refdata::store::item_names(&conn) {
+        Ok(n) => Matcher::new(n),
+        Err(e) => {
+            eprintln!("query failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let raws = match relichelper_agent::ocr::capture::capture_reward_tiles() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("capture/ocr failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    for (i, raw) in raws.iter().enumerate() {
+        match matcher.best(raw, 0.55) {
+            Some(m) => println!("tile{}: {} ({:.3})", i + 1, m.name, m.score),
+            None => println!("tile{}: {raw:?} -> (no match)", i + 1),
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+#[cfg(not(feature = "capture"))]
+fn cmd_capture_reward(_refdb: Option<PathBuf>) -> ExitCode {
+    eprintln!("this build has no screen capture; rebuild with: cargo build --features capture");
     ExitCode::FAILURE
 }
 

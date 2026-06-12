@@ -23,10 +23,14 @@ thiserror = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 strsim = "0.11"
 image = { version = "0.25", optional = true }
+xcap = { version = "0.0.14", optional = true }
 
 [features]
 # OCR of the reward/inventory screens. Crops with the `image` crate and shells
 # out to the `tesseract` binary (no native linking). Enable with --features ocr.
 ocr = ["dep:image"]
+# Live screen capture (xcap) for the daemon/overlay. Needs a display at runtime
+# (X11, or Wayland via the portal / XWayland). Enable with --features capture.
+capture = ["ocr", "dep:xcap"]
 
 [dev-dependencies]

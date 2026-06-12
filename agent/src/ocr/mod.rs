@@ -13,5 +13,8 @@ pub mod segment;
 #[cfg(feature = "ocr")]
 pub mod recognize;
 
+#[cfg(feature = "capture")]
+pub mod capture;
+
 pub use matcher::{Match, Matcher};
 pub use regions::{reward_name_boxes, Rect};

@@ -87,6 +87,8 @@ cargo run --features ocr --manifest-path agent/Cargo.toml -- recognize IMG.png [
 
 OCR (`--features ocr`) needs the `tesseract` binary installed; it crops the four reward-name boxes, isolates the theme-coloured name text, and snaps each to a canonical item name. The text colour is hue-agnostic and configurable for custom UI themes via `RELICHELPER_OCR_TEXT_RGB="r,g,b"` (default Warframe red). `recognize-relics` OCRs the relic refinement grid by *detecting* the name rows/columns in the image (Y/X projection of the isolated text), so it is independent of scroll position — no fixed cell coordinates. `own scan-relics` / `own scan-items` record recognised names as owned (presence is reliable; the relic "xNN" count badge is read best-effort and its offset is tunable via `RELICHELPER_OCR_COUNT_OFFSET`).
 
+Live screen capture (`--features capture`, command `capture-reward`) drives the overlay's squadmate-reward OCR. It additionally needs `dbus` dev headers to build (`dbus-devel` on Fedora, `libdbus-1-dev` on Debian) and a display at runtime, so it is not exercised in headless CI.
+
 The `replay`/`daemon` feed is the data stream the overlay (phase 6) and web app (phase 7) consume: per reward roll it emits a self-contained event with vault status, ownership, and relic sources already resolved — reconstructed entirely from `EE.log` + the local caches, no OCR.
 
 Linux system dependencies (for later phases — overlay & OCR):
@@ -190,6 +192,8 @@ cargo run --features ocr --manifest-path agent/Cargo.toml -- recognize IMG.png [
 ```
 
 OCR (`--features ocr`) braucht das `tesseract`-Binary; es croppt die vier Reward-Namensboxen, isoliert die themefarbene Schrift und bildet jeden Treffer auf einen kanonischen Item-Namen ab. Die Schriftfarbe ist hue-agnostisch und für Custom-UI-Themes per `RELICHELPER_OCR_TEXT_RGB="r,g,b"` konfigurierbar (Default Warframe-Rot). `recognize-relics` OCRt das Relikt-Refinement-Grid, indem es die Namens-Zeilen/-Spalten *im Bild erkennt* (Y/X-Projektion der isolierten Schrift) — also **unabhängig von der Scroll-Position**, ohne feste Zell-Koordinaten. `own scan-relics` / `own scan-items` erfassen erkannte Namen als Besitz (Präsenz zuverlässig; das „×NN"-Mengen-Badge der Relikte wird best-effort gelesen, Offset via `RELICHELPER_OCR_COUNT_OFFSET` tunebar).
+
+Live-Screen-Capture (`--features capture`, Befehl `capture-reward`) treibt die Mitspieler-Reward-OCR des Overlays. Es braucht zusätzlich `dbus`-Dev-Header zum Bauen (`dbus-devel` auf Fedora, `libdbus-1-dev` auf Debian) und zur Laufzeit ein Display — daher nicht in Headless-CI getestet.
 
 Der `replay`/`daemon`-Feed ist der Datenstrom, den Overlay (Phase 6) und Web-App (Phase 7) konsumieren: pro Reward-Roll ein in sich geschlossenes Event mit bereits aufgelöstem Vault-Status, Besitz und Relikt-Quellen — vollständig aus `EE.log` + lokalen Caches rekonstruiert, ohne OCR.
 
