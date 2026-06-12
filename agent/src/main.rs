@@ -77,6 +77,9 @@ fn main() -> ExitCode {
         "daemon" => cmd_feed(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from), true),
         "match" => cmd_match(args.get(1).cloned(), args.get(2).map(PathBuf::from)),
         "recognize" => cmd_recognize(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from)),
+        "recognize-relics" => {
+            cmd_recognize_relics(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from))
+        }
         other => {
             eprintln!("unknown command: {other}");
             eprintln!(
@@ -462,6 +465,57 @@ fn cmd_recognize(file: Option<PathBuf>, refdb: Option<PathBuf>) -> ExitCode {
 
 #[cfg(not(feature = "ocr"))]
 fn cmd_recognize(_file: Option<PathBuf>, _refdb: Option<PathBuf>) -> ExitCode {
+    eprintln!("this build has no OCR support; rebuild with: cargo build --features ocr");
+    ExitCode::FAILURE
+}
+
+#[cfg(feature = "ocr")]
+fn cmd_recognize_relics(file: Option<PathBuf>, refdb: Option<PathBuf>) -> ExitCode {
+    let Some(file) = file else {
+        eprintln!("usage: relichelper-agent recognize-relics IMAGE [REFDB]");
+        return ExitCode::FAILURE;
+    };
+    let refdb = refdb.unwrap_or_else(|| PathBuf::from("data/refdata.sqlite"));
+    let conn = match refdata::store::open(&refdb) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open reference db {}: {e}", refdb.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    // The grid prints names with a " Relic" suffix ("Lith Q2 Relic") while the
+    // cache keys them as "Lith Q2"; match against the suffixed form, then strip.
+    let matcher = match refdata::store::relic_names(&conn) {
+        Ok(n) => Matcher::new(n.into_iter().map(|r| format!("{r} Relic"))),
+        Err(e) => {
+            eprintln!("query failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let raws = match relichelper_agent::ocr::recognize::recognize_relic_grid_file(&file) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ocr failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    // Keep confident, de-duplicated matches.
+    let mut found: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for raw in &raws {
+        if let Some(m) = matcher.best(raw, 0.8) {
+            let name = m.name.strip_suffix(" Relic").unwrap_or(&m.name).to_string();
+            found.insert(name);
+        }
+    }
+    for name in &found {
+        println!("{name}");
+    }
+    eprintln!("matched {} distinct relics from {} cells", found.len(), raws.len());
+    ExitCode::SUCCESS
+}
+
+#[cfg(not(feature = "ocr"))]
+fn cmd_recognize_relics(_file: Option<PathBuf>, _refdb: Option<PathBuf>) -> ExitCode {
     eprintln!("this build has no OCR support; rebuild with: cargo build --features ocr");
     ExitCode::FAILURE
 }

@@ -83,7 +83,7 @@ cargo run   --manifest-path agent/Cargo.toml -- match "OCR text" [DB]  # snap OC
 cargo run --features ocr --manifest-path agent/Cargo.toml -- recognize IMG.png [DB]  # OCR a reward-screen capture
 ```
 
-OCR (`--features ocr`) needs the `tesseract` binary installed; it crops the four reward-name boxes, isolates the red name text, and snaps each to a canonical item name.
+OCR (`--features ocr`) needs the `tesseract` binary installed; it crops the four reward-name boxes, isolates the theme-coloured name text, and snaps each to a canonical item name. The text colour is hue-agnostic and configurable for custom UI themes via `RELICHELPER_OCR_TEXT_RGB="r,g,b"` (default Warframe red). `recognize-relics` (OCR of the relic refinement grid) is experimental and needs per-setup geometry tuning.
 
 The `replay`/`daemon` feed is the data stream the overlay (phase 6) and web app (phase 7) consume: per reward roll it emits a self-contained event with vault status, ownership, and relic sources already resolved — reconstructed entirely from `EE.log` + the local caches, no OCR.
 
@@ -185,7 +185,7 @@ cargo run   --manifest-path agent/Cargo.toml -- match "OCR-Text" [DB]  # OCR-Tex
 cargo run --features ocr --manifest-path agent/Cargo.toml -- recognize IMG.png [DB]  # Reward-Screen-Capture per OCR
 ```
 
-OCR (`--features ocr`) braucht das `tesseract`-Binary; es croppt die vier Reward-Namensboxen, isoliert die rote Schrift und bildet jeden Treffer auf einen kanonischen Item-Namen ab.
+OCR (`--features ocr`) braucht das `tesseract`-Binary; es croppt die vier Reward-Namensboxen, isoliert die themefarbene Schrift und bildet jeden Treffer auf einen kanonischen Item-Namen ab. Die Schriftfarbe ist hue-agnostisch und für Custom-UI-Themes per `RELICHELPER_OCR_TEXT_RGB="r,g,b"` konfigurierbar (Default Warframe-Rot). `recognize-relics` (OCR des Relikt-Refinement-Grids) ist experimentell und braucht Geometrie-Feintuning pro Setup.
 
 Der `replay`/`daemon`-Feed ist der Datenstrom, den Overlay (Phase 6) und Web-App (Phase 7) konsumieren: pro Reward-Roll ein in sich geschlossenes Event mit bereits aufgelöstem Vault-Status, Besitz und Relikt-Quellen — vollständig aus `EE.log` + lokalen Caches rekonstruiert, ohne OCR.
 

@@ -13,4 +13,4 @@ pub mod regions;
 pub mod recognize;
 
 pub use matcher::{Match, Matcher};
-pub use regions::{reward_name_boxes, Rect};
+pub use regions::{relic_grid_name_boxes, reward_name_boxes, Rect};

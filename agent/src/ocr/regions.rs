@@ -60,9 +60,57 @@ pub fn reward_name_boxes(width: u32, height: u32) -> [Rect; 4] {
     })
 }
 
+// Relic refinement grid (measured from 2560×1440 captures): 5 columns, the
+// name in red below each icon, a white "xNN" count badge above-right. Rows are
+// scanned generously; empty/Off-grid cells simply yield no confident match.
+const RELIC_COL_CENTERS: [f32; 5] = [0.130, 0.270, 0.412, 0.553, 0.693];
+const RELIC_ROW_NAME_Y: [f32; 4] = [0.321, 0.485, 0.649, 0.813];
+const RELIC_NAME_W: f32 = 0.125;
+const RELIC_NAME_H: f32 = 0.050; // tall enough to tolerate row-position variance
+
+/// Name-text crop boxes for the relic refinement grid, row-major (top-left
+/// first). Includes cells that may be empty; the caller filters by match score.
+pub fn relic_grid_name_boxes(width: u32, height: u32) -> Vec<Rect> {
+    let w = width as f32;
+    let h = height as f32;
+    let box_w = (RELIC_NAME_W * w).round() as u32;
+    let box_h = (RELIC_NAME_H * h).round() as u32;
+
+    let mut boxes = Vec::with_capacity(RELIC_ROW_NAME_Y.len() * RELIC_COL_CENTERS.len());
+    for &ry in &RELIC_ROW_NAME_Y {
+        let y = (ry * h - box_h as f32 / 2.0).max(0.0).round() as u32;
+        for &cx in &RELIC_COL_CENTERS {
+            let x = (cx * w - box_w as f32 / 2.0).max(0.0).round() as u32;
+            boxes.push(
+                Rect {
+                    x,
+                    y,
+                    w: box_w,
+                    h: box_h,
+                }
+                .clamped(width, height),
+            );
+        }
+    }
+    boxes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relic_grid_is_five_by_five_in_bounds() {
+        let boxes = relic_grid_name_boxes(2560, 1440);
+        assert_eq!(boxes.len(), RELIC_ROW_NAME_Y.len() * RELIC_COL_CENTERS.len());
+        for b in &boxes {
+            assert!(b.x + b.w <= 2560 && b.y + b.h <= 1440);
+            assert!(b.w > 0 && b.h > 0);
+        }
+        // First cell centered on column 1 / row 1.
+        let first = boxes[0];
+        assert!(((first.x + first.w / 2) as i32 - (0.130 * 2560.0) as i32).abs() <= 3);
+    }
 
     #[test]
     fn four_boxes_match_measured_1440p_centers() {
