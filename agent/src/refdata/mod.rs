@@ -1,6 +1,7 @@
 //! Reference data: parsing the official DE drop tables and caching them.
 
 pub mod model;
+pub mod naming;
 pub mod parse;
 pub mod store;
 

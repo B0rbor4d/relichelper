@@ -4,11 +4,13 @@
 //! patches), so persistence is a simple delete-and-reinsert inside one
 //! transaction.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use super::model::{era_word, Relic};
+use super::naming;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS relics (
@@ -27,6 +29,11 @@ CREATE TABLE IF NOT EXISTS drops (
 CREATE INDEX IF NOT EXISTS idx_drops_relic ON drops(relic);
 CREATE INDEX IF NOT EXISTS idx_drops_item  ON drops(item);
 CREATE INDEX IF NOT EXISTS idx_relics_vaulted ON relics(vaulted);
+CREATE TABLE IF NOT EXISTS items (
+    name TEXT PRIMARY KEY,
+    norm TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_items_norm ON items(norm);
 ";
 
 /// Opens (creating if needed) the reference-data database at `path` and ensures
@@ -45,6 +52,10 @@ pub fn persist(conn: &mut Connection, relics: &[Relic]) -> rusqlite::Result<()> 
     let tx = conn.transaction()?;
     tx.execute("DELETE FROM drops", [])?;
     tx.execute("DELETE FROM relics", [])?;
+    tx.execute("DELETE FROM items", [])?;
+
+    // Distinct reward items, for the path -> display-name bridge.
+    let mut items: BTreeSet<&str> = BTreeSet::new();
 
     for relic in relics {
         tx.execute(
@@ -58,11 +69,28 @@ pub fn persist(conn: &mut Connection, relics: &[Relic]) -> rusqlite::Result<()> 
                      VALUES (?1, ?2, ?3, ?4, ?5)",
                     params![relic.name, tier.as_str(), d.item, d.rarity, d.chance],
                 )?;
+                items.insert(d.item.as_str());
             }
         }
     }
 
+    for item in items {
+        tx.execute(
+            "INSERT OR REPLACE INTO items(name, norm) VALUES (?1, ?2)",
+            params![item, naming::normalize(item)],
+        )?;
+    }
+
     tx.commit()
+}
+
+/// Resolves an EE.log item path to its official display name, e.g.
+/// `/Lotus/StoreItems/.../LexPrimeBarrel` -> `"Lex Prime Barrel"`. Returns
+/// `None` if the item is not a known relic reward.
+pub fn resolve_item_path(conn: &Connection, path: &str) -> rusqlite::Result<Option<String>> {
+    let key = naming::path_key(path);
+    conn.query_row("SELECT name FROM items WHERE norm = ?1", [key], |r| r.get(0))
+        .optional()
 }
 
 /// Number of relics and drops currently stored — handy for verification.
@@ -106,6 +134,27 @@ mod tests {
         persist(&mut conn, &relics).unwrap();
         persist(&mut conn, &relics).unwrap();
         assert_eq!(counts(&conn).unwrap(), (2, 36));
+    }
+
+    #[test]
+    fn resolves_ee_log_path_to_display_name() {
+        let relics = parse_drop_data(&fixture());
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        persist(&mut conn, &relics).unwrap();
+
+        // Item present in the fixture's Axi A1 drop table.
+        let resolved = resolve_item_path(
+            &conn,
+            "/Lotus/StoreItems/Types/Recipes/Weapons/WeaponParts/AkstilettoPrimeBarrel",
+        )
+        .unwrap();
+        assert_eq!(resolved.as_deref(), Some("Akstiletto Prime Barrel"));
+
+        // Unknown item -> None.
+        let missing =
+            resolve_item_path(&conn, "/Lotus/StoreItems/.../SomethingNotInTable").unwrap();
+        assert_eq!(missing, None);
     }
 
     #[test]

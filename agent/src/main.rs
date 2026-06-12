@@ -7,6 +7,7 @@
 //!   watch [FILE]           Follow the log live, printing events as JSON lines.
 //!   sync HTML [DB]         Parse the official drop-table HTML into the SQLite
 //!                          reference cache (DB defaults to data/refdata.sqlite).
+//!   resolve PATH [DB]      Resolve an EE.log item path to its display name.
 //!
 //! With no arguments it locates the log and starts watching.
 
@@ -26,9 +27,10 @@ fn main() -> ExitCode {
         "parse" => cmd_parse(args.get(1).map(PathBuf::from)),
         "watch" => cmd_watch(args.get(1).map(PathBuf::from)),
         "sync" => cmd_sync(args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from)),
+        "resolve" => cmd_resolve(args.get(1).cloned(), args.get(2).map(PathBuf::from)),
         other => {
             eprintln!("unknown command: {other}");
-            eprintln!("usage: relichelper-agent [locate|parse|watch|sync] [ARGS]");
+            eprintln!("usage: relichelper-agent [locate|parse|watch|sync|resolve] [ARGS]");
             ExitCode::FAILURE
         }
     }
@@ -123,6 +125,35 @@ fn cmd_sync(html: Option<PathBuf>, db: Option<PathBuf>) -> ExitCode {
         db_path.display()
     );
     ExitCode::SUCCESS
+}
+
+fn cmd_resolve(path: Option<String>, db: Option<PathBuf>) -> ExitCode {
+    let Some(item_path) = path else {
+        eprintln!("usage: relichelper-agent resolve PATH [DB]");
+        return ExitCode::FAILURE;
+    };
+    let db_path = db.unwrap_or_else(|| PathBuf::from("data/refdata.sqlite"));
+    let conn = match refdata::store::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("cannot open db {}: {e}", db_path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    match refdata::store::resolve_item_path(&conn, &item_path) {
+        Ok(Some(name)) => {
+            println!("{name}");
+            ExitCode::SUCCESS
+        }
+        Ok(None) => {
+            eprintln!("no match for {item_path} (not a known relic reward, or run `sync` first)");
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("query failed: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn cmd_watch(file: Option<PathBuf>) -> ExitCode {
