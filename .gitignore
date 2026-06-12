@@ -1,0 +1,31 @@
+# Rust
+/agent/target/
+**/*.rs.bk
+
+# Node / TypeScript
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+
+# Local data / caches
+/data/*.sqlite
+/data/*.db
+/data/cache/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Claude session state (framework memory persistence)
+.claude/.session/
+.claude/state/

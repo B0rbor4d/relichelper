@@ -1,0 +1,17 @@
+12.368 Sys [Info]: Logged in TestTenno (aaaaaaaaaaaaaaaaaaaaaaaa)
+14.596 Sys [Info]: Player name changed to TestTenno Clan: Some Clan#123 AccountId: aaaaaaaaaaaaaaaaaaaaaaaa
+3202.582 Script [Info]: Dialog.lua: Dialog::CreateOkCancel(description=Refine Axi V14 Relic to RADIANT? It will cost 100., title= leftItem=/Menu/Confirm_Item_Yes, rightItem=/Menu/Confirm_Item_No)
+3336.484 Sys [Info]: client received full cache!
+3341.215 Sys [Info]: VoidProjections: OpenVoidProjectionRewardScreenRMI
+3341.223 Script [Info]: ProjectionRewardChoice.lua: Relic rewards initialized
+3341.395 Sys [Info]: VoidProjections: aaaaaaaaaaaaaaaaaaaaaaaa gets reward /Lotus/StoreItems/Types/Recipes/Weapons/WeaponParts/LexPrimeBarrel
+3341.395 Sys [Info]: VoidProjections: Client got reward info from aaaaaaaaaaaaaaaaaaaaaaaa
+3341.613 Sys [Info]: VoidProjections: Client got reward info from bbbbbbbbbbbbbbbbbbbbbbbb
+3341.613 Sys [Info]: VoidProjections: Client got reward info from cccccccccccccccccccccccc
+3341.898 Sys [Info]: VoidProjections: Client got reward info from dddddddddddddddddddddddd
+3341.902 Sys [Info]: VoidProjections: Client has reward info for all players now
+3341.906 Script [Info]: ProjectionsCountdown.lua: Initialize timer nil	15
+3356.910 Script [Info]: ProjectionsCountdown.lua: Countdown timer expired
+3356.910 Script [Info]: ProjectionsCountdown.lua: Initialize timer nil	0
+3356.910 Script [Info]: ProjectionRewardChoice.lua: Relic reward screen shut down
+3357.031 Script [Info]: EndOfMatch.lua: Mission Succeeded
